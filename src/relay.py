@@ -5,7 +5,7 @@ import uuid
 import torch
 from faster_whisper import WhisperModel
 from flasgger import Swagger
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sock import Sock
 
@@ -19,7 +19,7 @@ sessions = {}
 
 def transcribe_whisper(audio_recording):
     audio_file = io.BytesIO(audio_recording)
-    audio_file.name = 'audio.wav'  # Whisper requires a filename with a valid extension
+    audio_file.name = "audio.wav"  # Whisper requires a filename with a valid extension
 
     model_size = "large-v3"
     if torch.cuda.is_available():
@@ -49,10 +49,10 @@ def transcribe_whisper(audio_recording):
 #             }
 #             ws.send(json.dumps(message))
 
+
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
-    """
-    Open a new voice input session and start continuous recognition.
+    """Open a new voice input session and start continuous recognition.
     ---
     tags:
       - Sessions
@@ -102,7 +102,7 @@ def open_session(chat_session_id):
         "audio_buffer": None,
         "chatSessionId": chat_session_id,
         "language": language,
-        "websocket": None  # will be set when the client connects via WS
+        "websocket": None,  # will be set when the client connects via WS
     }
 
     return jsonify({"session_id": session_id})
@@ -110,8 +110,7 @@ def open_session(chat_session_id):
 
 @app.route("/chats/<chat_session_id>/sessions/<session_id>/wav", methods=["POST"])
 def upload_audio_chunk(chat_session_id, session_id):
-    """
-    Upload an audio chunk (expected 16kb, ~0.5s of WAV data).
+    """Upload an audio chunk (expected 16kb, ~0.5s of WAV data).
     The chunk is appended to the push stream for the session.
     ---
     tags:
@@ -169,9 +168,8 @@ def upload_audio_chunk(chat_session_id, session_id):
 
 @app.route("/chats/<chat_session_id>/sessions/<session_id>", methods=["DELETE"])
 def close_session(chat_session_id, session_id):
-    """
-    Close the session (stop recognition, close push stream, cleanup).
-    
+    """Close the session (stop recognition, close push stream, cleanup).
+
     ---
     tags:
       - Sessions
@@ -214,11 +212,7 @@ def close_session(chat_session_id, session_id):
         # send transcription
         ws = sessions[session_id].get("websocket")
         if ws:
-            message = {
-                "event": "recognized",
-                "text": text,
-                "language": sessions[session_id]["language"]
-            }
+            message = {"event": "recognized", "text": text, "language": sessions[session_id]["language"]}
             ws.send(json.dumps(message))
 
     # # Remove from session store
@@ -229,11 +223,10 @@ def close_session(chat_session_id, session_id):
 
 @sock.route("/ws/chats/<chat_session_id>/sessions/<session_id>")
 def speech_socket(ws, chat_session_id, session_id):
-    """
-    WebSocket endpoint for clients to receive STT results.
+    """WebSocket endpoint for clients to receive STT results.
 
     This WebSocket allows clients to connect and receive speech-to-text (STT) results
-    in real time. The connection is maintained until the client disconnects. If the 
+    in real time. The connection is maintained until the client disconnects. If the
     session ID is invalid, an error message is sent, and the connection is closed.
 
     ---
@@ -272,10 +265,9 @@ def speech_socket(ws, chat_session_id, session_id):
             break
 
 
-@app.route('/chats/<chat_session_id>/set-memories', methods=['POST'])
+@app.route("/chats/<chat_session_id>/set-memories", methods=["POST"])
 def set_memories(chat_session_id):
-    """
-    Set memories for a specific chat session.
+    """Set memories for a specific chat session.
 
     ---
     tags:
@@ -322,10 +314,9 @@ def set_memories(chat_session_id):
     return jsonify({"success": "1"})
 
 
-@app.route('/chats/<chat_session_id>/get-memories', methods=['GET'])
+@app.route("/chats/<chat_session_id>/get-memories", methods=["GET"])
 def get_memories(chat_session_id):
-    """
-    Retrieve stored memories for a specific chat session.
+    """Retrieve stored memories for a specific chat session.
     ---
     tags:
       - Memories
