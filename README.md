@@ -1,4 +1,8 @@
 
+### To Do
+- Install PyTorch 2.2.0
+- `pip install faster-whisper`
+
 <h1 align="center">
   <br>
     <br>
