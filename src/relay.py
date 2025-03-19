@@ -1,16 +1,13 @@
-import uuid
-import json
-import os
-
-from flask import Flask, request, jsonify
-import azure.cognitiveservices.speech as speechsdk
-from flask_sock import Sock
-from flask_cors import CORS
-from flasgger import Swagger
-import whisperx
-import gc
-from faster_whisper import WhisperModel
 import io
+import json
+import uuid
+
+import torch
+from faster_whisper import WhisperModel
+from flasgger import Swagger
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from flask_sock import Sock
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -19,19 +16,26 @@ swagger = Swagger(app)
 
 sessions = {}
 
+
 def transcribe_whisper(audio_recording):
-    
     audio_file = io.BytesIO(audio_recording)
     audio_file.name = 'audio.wav'  # Whisper requires a filename with a valid extension
-    
+
     model_size = "large-v3"
-    model = WhisperModel(model_size, device="cuda", compute_type="float16")
+    if torch.cuda.is_available():
+        DEVICE = "cuda"  # CUDA for NVIDIA GPUs
+    elif torch.backends.mps.is_available():
+        DEVICE = "cpu"  # MPS for Apple Silicon (M1/M2/M3)
+    else:
+        DEVICE = "cpu"  # Fallback to CPU
+    model = WhisperModel(model_size, device=DEVICE, compute_type="int8")
 
     segments, info = model.transcribe(audio_file, beam_size=5)
-    transcription = " ".join(segment.text.strip() for segment in segments)
+    transcription = [segment.text for segment in list(segments)]
     print(f"openai transcription: {transcription}")
     return transcription
-    
+
+
 # def transcribe_preview(session):
 #     if session["audio_buffer"] is not None:
 #         text = transcribe_whisper(session["audio_buffer"])
@@ -210,13 +214,13 @@ def close_session(chat_session_id, session_id):
         # send transcription
         ws = sessions[session_id].get("websocket")
         if ws:
-          message = {
-              "event": "recognized",
-              "text": text,
-              "language": sessions[session_id]["language"]
-          }
-          ws.send(json.dumps(message))
-    
+            message = {
+                "event": "recognized",
+                "text": text,
+                "language": sessions[session_id]["language"]
+            }
+            ws.send(json.dumps(message))
+
     # # Remove from session store
     sessions.pop(session_id, None)
 
@@ -267,6 +271,7 @@ def speech_socket(ws, chat_session_id, session_id):
         if msg is None:
             break
 
+
 @app.route('/chats/<chat_session_id>/set-memories', methods=['POST'])
 def set_memories(chat_session_id):
     """
@@ -309,9 +314,9 @@ def set_memories(chat_session_id):
         description: Invalid request data.
     """
     chat_history = request.get_json()
-    
+
     # TODO preprocess data (chat history & system message)
-    
+
     print(f"{chat_session_id} extracting memories for conversation a:{chat_history[-1]['text']}")
 
     return jsonify({"success": "1"})
@@ -353,4 +358,3 @@ def get_memories(chat_session_id):
 if __name__ == "__main__":
     # In production, you would use a real WSGI server like gunicorn/uwsgi
     app.run(debug=True, host="0.0.0.0", port=5000)
-    
