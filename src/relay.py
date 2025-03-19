@@ -21,7 +21,7 @@ def transcribe_whisper(audio_recording):
     audio_file = io.BytesIO(audio_recording)
     audio_file.name = "audio.wav"  # Whisper requires a filename with a valid extension
 
-    model_size = "large-v3"
+    model_size = "large-v3-turbo"
     if torch.cuda.is_available():
         DEVICE = "cuda"  # CUDA for NVIDIA GPUs
     elif torch.backends.mps.is_available():
@@ -31,8 +31,9 @@ def transcribe_whisper(audio_recording):
     model = WhisperModel(model_size, device=DEVICE, compute_type="int8")
 
     segments, info = model.transcribe(audio_file, beam_size=5)
-    transcription = [segment.text for segment in list(segments)]
-    print(f"openai transcription: {transcription}")
+    segments = list(segments)
+    transcription = [segment.text for segment in segments]
+    print(f"segments: {segments}, openai transcription: {transcription}")
     return transcription
 
 
