@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -174,3 +175,9 @@ cython_debug/
 .pypirc
 
 data/
+=======
+.DS_STORE
+__pycache__
+.idea/
+.env
+>>>>>>> 7003f0a11da85e7b0613e3a701c85987e350c2b0

@@ -12,11 +12,21 @@ import gc
 from faster_whisper import WhisperModel
 #from openai import OpenAI
 import io
+from dotenv import load_dotenv
 
+<<<<<<< HEAD
 AZURE_SPEECH_KEY = "BJ953og5dx7zhJDZayAhkShitCd8qHjlGTb0oimuxHsRJ5ldiL2IJQQJ99BCACI8hq2XJ3w3AAAYACOGYWu0"
 AZURE_SPEECH_REGION = "switzerlandnorth"
 #OPENAI_KEY = "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"
 #client = OpenAI(api_key=OPENAI_KEY)
+=======
+load_dotenv()
+
+AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
+AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
+OPENAI_KEY = os.getenv("OPENAI_KEY")
+client = OpenAI(api_key=OPENAI_KEY)
+>>>>>>> 7003f0a11da85e7b0613e3a701c85987e350c2b0
 
 app = Flask(__name__)
 sock = Sock(app)
