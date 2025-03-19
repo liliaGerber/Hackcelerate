@@ -1,0 +1,312 @@
+{
+    "definitions": {},
+    "info": {
+      "description": "powered by Flasgger",
+      "termsOfService": "/tos",
+      "title": "A swagger API",
+      "version": "0.0.1"
+    },
+    "paths": {
+      "/chats/{chat_session_id}/get-memories": {
+        "get": {
+          "parameters": [
+            {
+              "description": "The unique identifier of the chat session.",
+              "in": "path",
+              "name": "chat_session_id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Successfully retrieved memories for the chat session.",
+              "schema": {
+                "properties": {
+                  "memories": {
+                    "description": "The stored memories for the chat session.",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "400": {
+              "description": "Invalid chat session ID."
+            },
+            "404": {
+              "description": "Chat session not found."
+            }
+          },
+          "summary": "Retrieve stored memories for a specific chat session.",
+          "tags": [
+            "Memories"
+          ]
+        }
+      },
+      "/chats/{chat_session_id}/sessions": {
+        "post": {
+          "parameters": [
+            {
+              "description": "ID of the chat session",
+              "in": "path",
+              "name": "chat_session_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "language": {
+                    "description": "Language code for speech recognition (e.g., en-US)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "language"
+                ],
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Session created successfully",
+              "schema": {
+                "properties": {
+                  "session_id": {
+                    "description": "Unique identifier for the voice recognition session",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "400": {
+              "description": "Language parameter missing",
+              "schema": {
+                "properties": {
+                  "error": {
+                    "description": "Description of the error",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "summary": "Open a new voice input session and start continuous recognition.",
+          "tags": [
+            "Sessions"
+          ]
+        }
+      },
+      "/chats/{chat_session_id}/sessions/{session_id}": {
+        "delete": {
+          "description": "<br/>",
+          "parameters": [
+            {
+              "description": "The ID of the chat session",
+              "in": "path",
+              "name": "chat_session_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "The ID of the session to close",
+              "in": "path",
+              "name": "session_id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Session successfully closed",
+              "schema": {
+                "properties": {
+                  "status": {
+                    "example": "session_closed",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "404": {
+              "description": "Session not found",
+              "schema": {
+                "properties": {
+                  "error": {
+                    "example": "Session not found",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "summary": "Close the session (stop recognition, close push stream, cleanup).",
+          "tags": [
+            "Sessions"
+          ]
+        }
+      },
+      "/chats/{chat_session_id}/sessions/{session_id}/wav": {
+        "post": {
+          "description": "The chunk is appended to the push stream for the session.<br/>",
+          "parameters": [
+            {
+              "description": "ID of the chat session",
+              "in": "path",
+              "name": "chat_session_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "ID of the voice input session",
+              "in": "path",
+              "name": "session_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "audio_chunk",
+              "required": true,
+              "schema": {
+                "description": "Raw WAV audio data",
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Audio chunk received successfully",
+              "schema": {
+                "properties": {
+                  "status": {
+                    "description": "Status message",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "404": {
+              "description": "Session not found",
+              "schema": {
+                "properties": {
+                  "error": {
+                    "description": "Description of the error",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "summary": "Upload an audio chunk (expected 16kb, ~0.5s of WAV data).",
+          "tags": [
+            "Sessions"
+          ]
+        }
+      },
+      "/chats/{chat_session_id}/set-memories": {
+        "post": {
+          "description": "<br/>",
+          "parameters": [
+            {
+              "description": "The unique identifier of the chat session.",
+              "in": "path",
+              "name": "chat_session_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "in": "body",
+              "name": "body",
+              "required": true,
+              "schema": {
+                "properties": {
+                  "chat_history": {
+                    "description": "List of chat messages in the session.",
+                    "items": {
+                      "properties": {
+                        "text": {
+                          "description": "The chat message text.",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "Memory set successfully.",
+              "schema": {
+                "properties": {
+                  "success": {
+                    "example": "1",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "400": {
+              "description": "Invalid request data."
+            }
+          },
+          "summary": "Set memories for a specific chat session.",
+          "tags": [
+            "Memories"
+          ]
+        }
+      },
+      "/ws/chats/{chat_session_id}/sessions/{session_id}": {
+        "get": {
+          "description": "<br/>This WebSocket allows clients to connect and receive speech-to-text (STT) results<br/>in real time. The connection is maintained until the client disconnects. If the <br/>session ID is invalid, an error message is sent, and the connection is closed.<br/><br/>",
+          "parameters": [
+            {
+              "description": "The unique identifier for the chat session.",
+              "in": "path",
+              "name": "chat_session_id",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "description": "The unique identifier for the speech session.",
+              "in": "path",
+              "name": "session_id",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "responses": {
+            "101": {
+              "description": "WebSocket connection established."
+            },
+            "400": {
+              "description": "Session not found."
+            }
+          },
+          "summary": "WebSocket endpoint for clients to receive STT results.",
+          "tags": [
+            "Sessions"
+          ]
+        }
+      }
+    },
+    "swagger": "2.0"
+  }
