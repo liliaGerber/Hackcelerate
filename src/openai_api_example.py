@@ -1,6 +1,6 @@
 import requests
 
-API_KEY = "See https://starthack.eu/#/case-details?id=21, Case Description"
+API_KEY = "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"
 URL = "https://api.openai.com/v1/chat/completions"
 
 headers = {
