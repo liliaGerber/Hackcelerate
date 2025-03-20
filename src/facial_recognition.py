@@ -1,19 +1,17 @@
+import time
+
 import cv2
 import mediapipe as mp
 import numpy as np
-import time
-import os
 from insightface.app import FaceAnalysis
 
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=5, refine_landmarks=True)
 
-face_recognizer = FaceAnalysis(providers=['CPUExecutionProvider'])
+face_recognizer = FaceAnalysis(providers=["CPUExecutionProvider"])
 face_recognizer.prepare(ctx_id=0, det_size=(640, 640))
 
-KNOWN_FACES = [
-    ("Alice", "Data/person1.jpg"),
-    ("Bob", "Data/person2.jpg")]
+KNOWN_FACES = [("Alice", "Data/person1.jpg"), ("Bob", "Data/person2.jpg")]
 
 known_faces = {}
 for name, img_path in KNOWN_FACES:
