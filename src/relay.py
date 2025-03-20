@@ -17,9 +17,6 @@ from flask_cors import CORS
 from flask_sock import Sock
 from ollama import chat
 from sentence_transformers import SentenceTransformer
-import torch
-from transformers import pipeline
-from transformers.utils import is_flash_attn_2_available
 
 # Flask app and extensions
 app = Flask(__name__)
@@ -87,7 +84,7 @@ def cosine_similarity(vec1, vec2):
     return float(np.dot(vec1, vec2) / (norm1 * norm2))
 
 
-def transcribe_whisper(audio_recording):
+def transcribe_whisper(audio_recording: bytes):
     """Transcribe audio recording using Whisper.
     Returns a list of transcription segments.
     """
@@ -101,28 +98,29 @@ def transcribe_whisper(audio_recording):
         device = "cpu"  # Use CPU for MPS devices as needed
     else:
         device = "cpu"
-    
-    #Insanely Faster Whisper Speech to Text
-    pipe = pipeline(
-        "automatic-speech-recognition",
-        model="openai/whisper-"+str(model_size), # select checkpoint from https://huggingface.co/openai/whisper-large-v3#model-details
-        torch_dtype=torch.float16,
-        device=device, # or mps for Mac devices
-        model_kwargs={"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {"attn_implementation": "sdpa"},
-    )
-    outputs = pipe(
-        audio_file,
-        chunk_length_s=30,
-        batch_size=24,
-        return_timestamps=True,
-    )
-    transcription = outputs['text']
 
-    #Faster Whisper Speech to Text
-    #model = WhisperModel(model_size, device=device, compute_type="int8")
-    #segments, info = model.transcribe(audio_file, beam_size=5)
-    #segments = list(segments)
-    #transcription = [segment.text for segment in segments]
+    # Insanely Faster Whisper Speech to Text
+    # audio_np_array = np.frombuffer(audio_recording)
+    # pipe = pipeline(
+    #     "automatic-speech-recognition",
+    #     model="openai/whisper-"+str(model_size),  # select checkpoint from https://huggingface.co/openai/whisper-large-v3#model-details
+    #     torch_dtype=torch.float16,
+    #     device=device,  # or mps for Mac devices
+    #     model_kwargs={"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {"attn_implementation": "sdpa"},
+    # )
+    # outputs = pipe(
+    #     audio_np_array,
+    #     chunk_length_s=3,
+    #     batch_size=24,
+    #     return_timestamps=True,
+    # )
+    # transcription = outputs['text']
+
+    # Faster Whisper Speech to Text
+    model = WhisperModel(model_size, device=device, compute_type="int8")
+    segments, info = model.transcribe(audio_file, beam_size=5)
+    segments = list(segments)
+    transcription = [segment.text for segment in segments]
 
     print(f"Transcription segments: {transcription}")
     return transcription
