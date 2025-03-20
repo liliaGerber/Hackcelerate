@@ -387,10 +387,11 @@ def close_session(chat_session_id, session_id):
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
         message_content = (
-                "Answer the following asked by user. Max 500 characters output."
-                + text +
-                "Use information of the user for preferences from"
+                "Answer the following in a maximum of 500 characters output:"
+                + text
+                + ". Use information of the user's personality:"
                 + str(df.to_string())
+                + "If available, you can also use the user's preference to customize the answer. The preferences are listed: "
                 + "User preferences" + str(preferences)
         )
         stream = chat(
