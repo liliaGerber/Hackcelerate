@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import os
 import pickle
 import re
@@ -14,6 +15,7 @@ import mediapipe as mp
 import numpy as np
 import pandas as pd
 import simple_websocket
+import spacy
 import torch
 from flasgger import Swagger
 from flask import Flask, jsonify, request
@@ -22,6 +24,7 @@ from flask_sock import Sock
 from insightface.app import FaceAnalysis
 from ollama import chat
 from sentence_transformers import SentenceTransformer
+from spacy.matcher import Matcher
 from sqlalchemy import Column, Integer, Numeric, String, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from transformers import pipeline
@@ -40,8 +43,10 @@ swagger = Swagger(app)
 sessions = {}
 clients: set[simple_websocket.ws.Server] = set()
 DB_PATH = os.path.join(os.path.dirname(__file__), "memories.sqlite")
+current_speaker = None
 
-
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 # ----------------------- Model and Vectorizer Loading -----------------------
 def load_pickle_model(path):
     with open(path, "rb") as f:
@@ -84,6 +89,7 @@ Base = declarative_base()
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Session = sessionmaker(bind=engine)
 db_session = Session()
+nlp = spacy.load("en_core_web_sm")
 
 
 class User(Base):
@@ -102,6 +108,7 @@ class User(Base):
     allergies = Column(String, nullable=True)
     hobbies = Column(Text, nullable=True)
     image = Column(String, nullable=True)
+    preferences = Column(Text)
 
 
 Base.metadata.create_all(engine)
@@ -131,7 +138,6 @@ for user in users:
                 print(f"[WARNING] No face detected in image: {img_path}.")
         else:
             print(f"[WARNING] Image path does not exist: {img_path}.")
-print("[INFO] known_faces:", known_faces)
 
 # Parameters for lip movement / speaking detection
 lip_movement_threshold = 0.01
@@ -159,6 +165,7 @@ def get_face_identity(face_embedding, threshold=0.6):
 
 # ----------------------- Face Recognition Loop (Active Speaker Logic) -----------------------
 def face_recognition_loop(stop_event):
+    global current_speaker  # Declare that we are using the global variable
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FPS, 30)
     if not cap.isOpened():
@@ -202,7 +209,7 @@ def face_recognition_loop(stop_event):
                 if best_match_id is not None:
                     detected_faces[best_match_id] = identity
 
-        active_speakers = []
+        active_speakers_local = []
         if results.multi_face_landmarks:
             for face_id, face_landmarks in enumerate(results.multi_face_landmarks):
                 lip_distance = calculate_lip_distance(face_landmarks.landmark)
@@ -213,7 +220,7 @@ def face_recognition_loop(stop_event):
                 movement = abs(lip_distance - previous_lip_distance[face_id])
                 is_speaking = movement > lip_movement_threshold
                 if is_speaking and not speaking_status[face_id]:
-                    active_speakers.append(detected_faces.get(face_id, "Unknown"))
+                    active_speakers_local.append(detected_faces.get(face_id, "Unknown"))
                     speaking_status[face_id] = True
                     last_speaking_time[face_id] = time.time()
                 elif not is_speaking and speaking_status[face_id]:
@@ -221,13 +228,12 @@ def face_recognition_loop(stop_event):
                         speaking_status[face_id] = False
                 previous_lip_distance[face_id] = lip_distance
 
-        if active_speakers:
-            print("Currently Speaking:", ", ".join(active_speakers))
-        current_time = time.time()
-        fps = 1 / (current_time - prev_time)
-        # print(f"FPS: {fps:.2f}")
-        prev_time = current_time
-
+        # Always take the first recognized person as the current speaker
+        if active_speakers_local:
+            current_speaker = active_speakers_local[0]
+            print("Currently Speaking:", current_speaker)
+        else:
+            current_speaker = None
     cap.release()
 
 
@@ -302,7 +308,6 @@ def predict_personality(text: str) -> list[np.int32]:
 
 @sock.route("/ws")
 def websocket(ws):
-    print(">>> call ws")
     clients.add(ws)
     try:
         while True:
@@ -315,7 +320,6 @@ def websocket(ws):
 
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
-    print(">>> call open_session")
     session_id = str(uuid.uuid4())
     body = request.get_json()
     if "language" not in body:
@@ -337,7 +341,6 @@ def open_session(chat_session_id):
 
 @app.route("/chats/<chat_session_id>/sessions/<session_id>/wav", methods=["POST"])
 def upload_audio_chunk(chat_session_id, session_id):
-    print(">>> call upload_audio_chunk")
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
 
@@ -447,13 +450,17 @@ def close_session(chat_session_id, session_id):
     # Stop the face recognition thread
     session["face_stop_event"].set()
     session["face_thread"].join()
+
+    # Reset global current speaker when the session ends
+    global current_speaker
+    current_speaker = None
+
     sessions.pop(session_id, None)
     return jsonify({"status": "session_closed"})
 
 
 @sock.route("/ws/chats/<chat_session_id>/sessions/<session_id>")
 def speech_socket(ws, chat_session_id, session_id):
-    print(">>> call speech_socket")
     if session_id not in sessions:
         ws.send(json.dumps({"error": "Session not found"}))
         return
@@ -473,12 +480,96 @@ def summarize_text(previous_summary, new_messages):
     return response.get("message", {}).get("content", previous_summary)  # Fallback to previous summary
 
 
+def update_user_profile(preferences_data):
+    """
+    Update the user record in the SQLite database for the current speaker.
+    Only the 'preferences' JSON column is updated based on the recognized speaker's name.
+    If no speaker is recognized, the function does nothing.
+    """
+    global current_speaker
+    if not current_speaker or current_speaker == "Unknown":
+        print("No valid current speaker recognized; skipping update.")
+        return
+
+    print("[INFO] current_speaker: ", current_speaker)
+    preferences_json = json.dumps(preferences_data)
+
+    conn = sqlite3.connect(DATABASE_PATH)
+    cursor = conn.cursor()
+    # Update based on the recognized user's name
+    query = "UPDATE user SET preferences = ? WHERE name = ?"
+    cursor.execute(query, (preferences_json, current_speaker))
+    conn.commit()
+    conn.close()
+
+
+
+matcher = Matcher(nlp.vocab)
+_PATTERNS = [
+    ("DIET_VEGAN", [{"LOWER": "vegan"}]),
+    ("DIET_VEGETARIAN", [{"LOWER": "vegetarian"}]),
+    ("DIET_PESCATARIAN", [{"LOWER": "pescatarian"}]),
+    ("DIET_OMNIVORE", [{"LOWER": "omnivore"}]),
+    ("ALLERGY_NUTS", [{"LOWER": "nuts"}]),
+    ("ALLERGY_DAIRY", [{"LOWER": "dairy"}]),
+    ("ALLERGY_GLUTEN", [{"LOWER": "gluten"}]),
+    ("ALLERGY_SHELLFISH", [{"LOWER": "shellfish"}])
+]
+for label, pattern in _PATTERNS:
+    matcher.add(label, [pattern])
+
+def process_chat_history(chat_text):
+    """
+    Process the chat text using spaCy’s NLP pipeline to extract user preferences.
+
+    This implementation assumes that your spaCy model has been trained (or extended)
+    to recognize custom entity labels:
+      - "DIET" for dietary preferences (e.g., "omnivore", "vegan")
+      - "ALLERGY" for allergy mentions (e.g., "nuts", "gluten")
+      - "FOOD" for food items the user likes
+      - "DRINK" for beverage preferences
+      - "HOBBY" for hobbies the user enjoys
+
+    The function returns a dictionary with the extracted preferences, for example:
+      {
+        "diet": "omnivore",
+        "allergies": ["nuts"],
+        "food_preference": ["pizza", "pasta"],
+        "drink_preference": ["coffee", "water"],
+        "hobbies": ["reading", "hiking"]
+      }
+    """
+    doc = nlp(chat_text)
+    preferences = {}
+
+    # Iterate over recognized entities and group them by their label
+    for ent in doc.ents:
+        label = ent.label_
+        text = ent.text.strip().lower()
+        if label == "DIET":
+            # If multiple diets are mentioned, you might choose the first or combine them.
+            preferences["diet"] = text
+        elif label == "ALLERGY":
+            preferences.setdefault("allergies", []).append(text)
+        elif label == "FOOD":
+            preferences.setdefault("food_preference", []).append(text)
+        elif label == "DRINK":
+            preferences.setdefault("drink_preference", []).append(text)
+        elif label == "HOBBY":
+            preferences.setdefault("hobbies", []).append(text)
+
+    # Optionally, you might also inspect doc.cats (if a text categorizer is in your pipeline)
+    # to add more context-based preferences.
+    print("[INFO] Extracted preferences:", preferences)
+    return preferences
+
+
 def store_memories(chat_session_id, chat_history):
-    """Store chat messages asynchronously to improve performance."""
+    global current_speaker
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
 
-        # Fetch existing memory IDs
+        # --- Memory Storage Section ---
         all_id_rows = c.execute("SELECT id FROM memories").fetchall()
         all_ids = {row[0] for row in all_id_rows}
         current_chats = [msg for msg in chat_history if msg["id"] not in all_ids]
@@ -486,22 +577,18 @@ def store_memories(chat_session_id, chat_history):
         if not current_chats:
             return
 
-        # Fetch the last summary
         last_summary_row = c.execute(
             "SELECT current_summary FROM memories WHERE chat_session_id = ? ORDER BY id DESC LIMIT 1",
             (chat_session_id,),
         ).fetchone()
         last_summary = last_summary_row[0] if last_summary_row else ""
 
-        # Generate new summary
         new_summary = summarize_text(last_summary, current_chats)
 
-        # Insert new messages into the database
         for message in current_chats:
             text = message.get("text", "").strip()
             if not text:
                 continue
-
             embedding_str = json.dumps(get_embedding(text))
             c.execute(
                 "INSERT INTO memories (id, chat_session_id, text, embedding, entity, current_summary) "
@@ -509,16 +596,33 @@ def store_memories(chat_session_id, chat_history):
                 (message["id"], chat_session_id, text, embedding_str, message["type"], new_summary),
             )
 
+        # --- User Profile Update Section ---
+        conversation_text = " ".join(
+            msg.get("text", "").strip() for msg in chat_history if msg.get("text", "").strip()
+        )
+        preferences = process_chat_history(conversation_text)
+        preferences_json = json.dumps(preferences)
+
+        # If a recognized speaker is available, update by their name; else, use chat_session_id
+        if current_speaker is not None and current_speaker != "Unknown":
+            update_query = "UPDATE user SET preferences = ? WHERE name = ?"
+            c.execute(update_query, (preferences_json, current_speaker))
+        else:
+            update_query = "UPDATE user SET preferences = ? WHERE id = ?"
+            c.execute(update_query, (preferences_json, chat_session_id))
+
         conn.commit()
 
 
 @app.route("/chats/<chat_session_id>/set-memories", methods=["POST"])
 def set_memories(chat_session_id):
-    """Store chat messages asynchronously and return success response immediately."""
-    print(">>> call set_memories")
+    """
+    Receive chat messages, store them asynchronously, process the text with spaCy,
+    and update the user record in the SQLite database.
+    """
     chat_history = request.get_json()
 
-    # background thread for memory storage
+    # Process and update in a background thread for speed
     threading.Thread(target=store_memories, args=(chat_session_id, chat_history)).start()
 
     return jsonify({"success": "1"})
@@ -529,7 +633,6 @@ def get_memories(chat_session_id):
     """Retrieve stored memories for a specific chat session.
     Optionally filter memories based on a query parameter using cosine similarity.
     """
-    print(">>> call get_memories")
     query_text = request.args.get("query", None)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
