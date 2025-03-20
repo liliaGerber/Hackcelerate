@@ -116,7 +116,7 @@ def transcribe_whisper(audio_recording):
         batch_size=24,
         return_timestamps=True,
     )
-    transcription = outputs.text
+    transcription = outputs['text']
 
     #Faster Whisper Speech to Text
     #model = WhisperModel(model_size, device=device, compute_type="int8")
