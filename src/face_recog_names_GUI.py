@@ -15,10 +15,8 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 cap.set(cv2.CAP_PROP_FPS, 30)
 
 # Pre-assigned names for the first four faces
-face_names = {0: "Lili", 1: "Rodrigo", 2: "Mudi", 3: "Shrey"}
+face_names = {0: "Lili", 1: "Rodrigo", 2: "Mudi", 3: "Shrey", 4: "Lili", 5: "Rodrigo", 6: "Mudi", 7: "Shrey"}
 
-# Store previous lip positions and track faces
-previous_lip_distance = {}
 face_trackers = {}  # face_id -> bounding box (x1, y1, x2, y2)
 next_face_id = 0
 
