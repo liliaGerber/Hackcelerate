@@ -374,11 +374,11 @@ def close_session(chat_session_id, session_id):
         engine.setProperty('voice', voices[1].id)
 
         # Add your own preliminary prompt
-        if str(current_speaker) != "":
+        if current_speaker is not None:
             engine.say("Hello "+str(current_speaker)+". "
             "It is really nice to see you again. Just give me a moment to process that")
         else:
-            engine.say("Just give me a moment to process that.")
+            engine.say("Sorry I couldn't recognize you. How are you doing? Just give me a moment to process that.")
         engine.runAndWait()
 
         transcription = transcribe_whisper(session["audio_buffer"], pipe)
