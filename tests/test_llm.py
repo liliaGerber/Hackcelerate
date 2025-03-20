@@ -6,9 +6,9 @@ stream = chat(
         {
             "role": "user",
             "content": "Answer the question asked by user"
-            "Why is the sky blue? "
+            "Can you get my my favourite pizza"
             "Give reply based on personality traits without mentioning about it in response"
-            "EXT:77.18 NEU: 61.74 AGR: 75.51 CON:70.34 OPN:80.39",
+            "EXT:1 NEU: 1 AGR: 1 CON: 0 OPN: 0",
         }
     ],
     stream=True,

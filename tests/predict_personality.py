@@ -1,6 +1,5 @@
 import pickle
 import re
-
 import pandas as pd
 
 cEXT = pickle.load(open("data/models/cEXT.p", "rb"))
@@ -10,7 +9,6 @@ cCON = pickle.load(open("data/models/cCON.p", "rb"))
 cOPN = pickle.load(open("data/models/cOPN.p", "rb"))
 vectorizer_31 = pickle.load(open("data/models/vectorizer_31.p", "rb"))
 vectorizer_30 = pickle.load(open("data/models/vectorizer_30.p", "rb"))
-
 
 def predict_personality(text):
     scentences = re.split("(?<=[.!?]) +", text)
@@ -23,9 +21,8 @@ def predict_personality(text):
     OPN = cOPN.predict(text_vector_31)
     return [EXT[0], NEU[0], AGR[0], CON[0], OPN[0]]
 
-
-text = "It is important to note that each of the five personality factors represents a range between two extremes. For example, extraversion represents a continuum between extreme extraversion and extreme introversion. In the real world, most people lie somewhere in between the two polar ends of each dimension. These five categories are usually described as follows."
+text = "It is important to note that each of the five personality "
 
 predictions = predict_personality(text)
-# print("predicted personality:", predictions)
+print("predicted personality:", predictions)
 df = pd.DataFrame(dict(r=predictions, theta=["EXT", "NEU", "AGR", "CON", "OPN"]))
