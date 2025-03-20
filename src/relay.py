@@ -1,20 +1,19 @@
 import io
 import json
-import uuid
+import pickle
+import re
 import sqlite3
-import numpy as np
+import uuid
 
+import numpy as np
+import pandas as pd
 import torch
 from faster_whisper import WhisperModel
 from flasgger import Swagger
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sock import Sock
-import pickle
-from sklearn.feature_extraction.text import CountVectorizer
-import plotly.express as px
-import pandas as pd
-import re
+from sentence_transformers import SentenceTransformer
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -28,8 +27,33 @@ cNEU = pickle.load(open("data/models/cNEU.p", "rb"))
 cAGR = pickle.load(open("data/models/cAGR.p", "rb"))
 cCON = pickle.load(open("data/models/cCON.p", "rb"))
 cOPN = pickle.load(open("data/models/cOPN.p", "rb"))
-vectorizer_31 = pickle.load( open( "data/models/vectorizer_31.p", "rb"))
-vectorizer_30 = pickle.load( open( "data/models/vectorizer_30.p", "rb"))
+vectorizer_31 = pickle.load(open("data/models/vectorizer_31.p", "rb"))
+vectorizer_30 = pickle.load(open("data/models/vectorizer_30.p", "rb"))
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+DB_PATH = "memories.sqlite"
+
+
+def init_db():
+    """Initialize the SQLite database and create the memories table if it doesn't exist."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_session_id TEXT,
+            text TEXT,
+            embedding TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def get_embedding(text):
+    # The model returns a numpy array; convert it to list so it can be stored as JSON.
+    embedding = embedding_model.encode(text)
+    return embedding.tolist()
+
 
 def cosine_similarity(vec1, vec2):
     """Compute cosine similarity between two vectors."""
@@ -44,7 +68,7 @@ def transcribe_whisper(audio_recording):
     audio_file = io.BytesIO(audio_recording)
     audio_file.name = "audio.wav"  # Whisper requires a filename with a valid extension
 
-    #model_size = "medium"
+    # model_size = "medium"
     model_size = "large-v3-turbo"
 
     if torch.cuda.is_available():
@@ -61,6 +85,7 @@ def transcribe_whisper(audio_recording):
     print(f"segments: {segments}, openai transcription: {transcription}")
     return transcription
 
+
 # def transcribe_preview(session):
 #     if session["audio_buffer"] is not None:
 #         text = transcribe_whisper(session["audio_buffer"])
@@ -73,6 +98,7 @@ def transcribe_whisper(audio_recording):
 #                 "language": session["language"]
 #             }
 #             ws.send(json.dumps(message))
+
 
 def predict_personality(text):
     scentences = re.split("(?<=[.!?]) +", text)
@@ -246,20 +272,20 @@ def close_session(chat_session_id, session_id):
 
         text = transcribe_whisper(sessions[session_id]["audio_buffer"])
 
-        #Active Personality Trait Prediction
-        sentiment_text = text #'It is important to note that each of the five personality factors represents a range'
+        # Active Personality Trait Prediction
+        sentiment_text = text  # 'It is important to note that each of the five personality factors represents a range'
         predictions = predict_personality(sentiment_text)
         print("predicted personality:", predictions)
-        df = pd.DataFrame(dict(r=predictions, theta=['EXT','NEU','AGR', 'CON', 'OPN']))
-        
+        df = pd.DataFrame(dict(r=predictions, theta=["EXT", "NEU", "AGR", "CON", "OPN"]))
+
         # send transcription
         ws = sessions[session_id].get("websocket")
         if ws:
             message = {
                 "event": "recognized",
                 "text": text,
-                "personality_traits" : df,
-                "language": sessions[session_id]["language"]
+                "personality_traits": df,
+                "language": sessions[session_id]["language"],
             }
             ws.send(json.dumps(message))
 
@@ -370,8 +396,10 @@ def set_memories(chat_session_id):
         embedding = get_embedding(text)
         # Store embedding as JSON string
         embedding_str = json.dumps(embedding)
-        c.execute("INSERT INTO memories (chat_session_id, text, embedding) VALUES (?, ?, ?)",
-                  (chat_session_id, text, embedding_str))
+        c.execute(
+            "INSERT INTO memories (chat_session_id, text, embedding) VALUES (?, ?, ?)",
+            (chat_session_id, text, embedding_str),
+        )
     conn.commit()
     conn.close()
 
