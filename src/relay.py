@@ -47,6 +47,8 @@ current_speaker = None
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+
+
 # ----------------------- Model and Vectorizer Loading -----------------------
 def load_pickle_model(path):
     with open(path, "rb") as f:
@@ -127,13 +129,11 @@ for user in users:
     if user.image:
         img_path = os.path.join(os.path.dirname(__file__), "Data", user.image)
         if os.path.exists(img_path):
-            print(f"[INFO] Loading image: {img_path}")
             img = cv2.imread(img_path)
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             faces = face_recognizer.get(img_rgb)
             if faces:
-                known_faces[user.name] = faces[0].normed_embedding  # Embedding assumed normalized
-                print(f"[INFO] Face detected for {user.name}")
+                known_faces[user.name] = faces[0].normed_embedding
             else:
                 print(f"[WARNING] No face detected in image: {img_path}.")
         else:
@@ -145,7 +145,6 @@ previous_lip_distance = {}
 speaking_status = {}
 last_speaking_time = {}
 silent_threshold = 1.5
-
 
 def calculate_lip_distance(landmarks):
     """Calculate the vertical distance between two key lip landmarks."""
@@ -164,16 +163,16 @@ def get_face_identity(face_embedding, threshold=0.6):
 
 
 # ----------------------- Face Recognition Loop (Active Speaker Logic) -----------------------
-def face_recognition_loop(stop_event):
-    global current_speaker  # Declare that we are using the global variable
+def face_recognition_loop():
+    global current_speaker
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FPS, 30)
+
     if not cap.isOpened():
         print("[ERROR] Camera not accessible.")
         return
 
-    prev_time = time.time()
-    while not stop_event.is_set():
+    while current_speaker is None:
         ret, frame = cap.read()
         if not ret:
             break
@@ -183,20 +182,13 @@ def face_recognition_loop(stop_event):
         small_frame = cv2.resize(frame, (0, 0), fx=scale_factor, fy=scale_factor)
         rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-        # Run face recognition on full-resolution frame for accuracy
         face_rec_results = face_recognizer.get(frame)
-        # Run face mesh on resized frame for speed
         results = face_mesh.process(rgb_small_frame)
-
-        detected_faces = {}
         if face_rec_results:
             for face in face_rec_results:
-                identity = get_face_identity(face.normed_embedding) or f"Person_{len(known_faces) + 1}"
-                best_match_id = None
                 min_distance = float("inf")
                 if results.multi_face_landmarks:
                     for face_id, face_landmarks in enumerate(results.multi_face_landmarks):
-                        # Use the nose tip as reference
                         nose = face_landmarks.landmark[1]
                         landmark_center = np.array(
                             [nose.x * frame.shape[1] * scale_factor, nose.y * frame.shape[0] * scale_factor]
@@ -205,38 +197,23 @@ def face_recognition_loop(stop_event):
                         distance = np.linalg.norm(face_center - landmark_center)
                         if distance < min_distance:
                             min_distance = distance
-                            best_match_id = face_id
-                if best_match_id is not None:
-                    detected_faces[best_match_id] = identity
-
-        active_speakers_local = []
-        if results.multi_face_landmarks:
-            for face_id, face_landmarks in enumerate(results.multi_face_landmarks):
-                lip_distance = calculate_lip_distance(face_landmarks.landmark)
-                if face_id not in previous_lip_distance:
-                    previous_lip_distance[face_id] = lip_distance
-                    speaking_status[face_id] = False
-                    last_speaking_time[face_id] = time.time()
-                movement = abs(lip_distance - previous_lip_distance[face_id])
-                is_speaking = movement > lip_movement_threshold
-                if is_speaking and not speaking_status[face_id]:
-                    active_speakers_local.append(detected_faces.get(face_id, "Unknown"))
-                    speaking_status[face_id] = True
-                    last_speaking_time[face_id] = time.time()
-                elif not is_speaking and speaking_status[face_id]:
-                    if time.time() - last_speaking_time[face_id] > silent_threshold:
-                        speaking_status[face_id] = False
-                previous_lip_distance[face_id] = lip_distance
-
-        # Always take the first recognized person as the current speaker
-        if active_speakers_local:
-            current_speaker = active_speakers_local[0]
-            print("Currently Speaking:", current_speaker)
-        else:
-            current_speaker = None
+                        lip_distance = calculate_lip_distance(face_landmarks.landmark)
+                        if face_id not in previous_lip_distance:
+                            previous_lip_distance[face_id] = lip_distance
+                            speaking_status[face_id] = False
+                            last_speaking_time[face_id] = time.time()
+                        movement = abs(lip_distance - previous_lip_distance[face_id])
+                        is_speaking = movement > lip_movement_threshold
+                        if is_speaking:
+                            detected_identity = get_face_identity(face.normed_embedding)
+                            if detected_identity is not None:
+                                current_speaker = detected_identity
+                                print("Detected identity:", current_speaker)
+                                break
     cap.release()
 
-
+face_thread = threading.Thread(target=face_recognition_loop, daemon=True)
+face_thread.start()
 # ----------------------- Additional Utility Functions -----------------------
 def get_embedding(text):
     embedding = embedding_model.encode(text)
@@ -326,8 +303,6 @@ def open_session(chat_session_id):
         return jsonify({"error": "Language not specified"}), 400
     # Start the face recognition thread (which prints active speakers)
     stop_event = threading.Event()
-    face_thread = threading.Thread(target=face_recognition_loop, args=(stop_event,), daemon=True)
-    face_thread.start()
     sessions[session_id] = {
         "audio_buffer": None,
         "chatSessionId": chat_session_id,
@@ -395,7 +370,7 @@ def close_session(chat_session_id, session_id):
         voices = engine.getProperty('voices')
         engine.setProperty('voice', voices[1].id)
 
-        #Add your own preliminary prompt
+        # Add your own preliminary prompt
         engine.say("Just give me a moment to process that.")
         engine.runAndWait()
 
@@ -405,10 +380,10 @@ def close_session(chat_session_id, session_id):
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
         message_content = (
-            "Answer this asked by user. Max 500 characters output."
-            + text
-            + " Give reply based on personality traits without mentioning about it in response "
-            + str(df.to_string())
+                "Answer this asked by user. Max 500 characters output."
+                + text
+                + " Give reply based on personality traits without mentioning about it in response "
+                + str(df.to_string())
         )
         stream = chat(
             model="gemma3:1b",
@@ -503,7 +478,6 @@ def update_user_profile(preferences_data):
     conn.close()
 
 
-
 matcher = Matcher(nlp.vocab)
 _PATTERNS = [
     ("DIET_VEGAN", [{"LOWER": "vegan"}]),
@@ -517,6 +491,7 @@ _PATTERNS = [
 ]
 for label, pattern in _PATTERNS:
     matcher.add(label, [pattern])
+
 
 def process_chat_history(chat_text):
     """
