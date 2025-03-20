@@ -58,22 +58,6 @@ vectorizer_30 = load_pickle_model("data/models/vectorizer_30.p")
 
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-# Speech to text
-stt_model = "large-v3-turbo"
-if torch.cuda.is_available():
-    device = "cuda"
-elif torch.backends.mps.is_available():
-    device = "mps"
-else:
-    device = "cpu"
-flash_attn = is_flash_attn_2_available()
-speech_engine = pyttsx3.init()
-speech_engine.setProperty("volume", 0.8)
-speech_engine.setProperty("rate", 200)
-voices = speech_engine.getProperty("voices")
-speech_engine.setProperty("voice", voices[2].id)
-
-
 # ----------------------- Database Setup -----------------------
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -384,10 +368,15 @@ def close_session(chat_session_id, session_id):
 
     session = sessions[session_id]
     if session["audio_buffer"] is not None:
-        # Introduction audio to stall for time
-        # TODO: Should happen in the background and not block the thread
-        speech_engine.say("Hello and nice to see you.")
+        stt_model = "large-v3-turbo"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
 
+        # Introduction audio to stall for time
         # Insanely Faster Whisper Speech to Text
         pipe = pipeline(
             "automatic-speech-recognition",
@@ -395,7 +384,7 @@ def close_session(chat_session_id, session_id):
             torch_dtype=torch.float16,
             device=device,
             model_kwargs={"attn_implementation": "flash_attention_2"}
-            if flash_attn
+            if is_flash_attn_2_available()
             else {"attn_implementation": "sdpa"},
         )
 
@@ -425,11 +414,13 @@ def close_session(chat_session_id, session_id):
             response_content += chunk_text
 
         # Say the response
+        speech_engine = pyttsx3.init()
+        speech_engine.setProperty('rate', 200)
         speech_engine.say(response_content)
-        try:
-            speech_engine.endLoop()
-        except RuntimeError:
-            pass
+        speech_engine.setProperty('volume', 0.8)  # Max volume
+        voices = speech_engine.getProperty('voices')
+        speech_engine.setProperty('voice', voices[1].id)
+        speech_engine.say(response_content)
         speech_engine.runAndWait()
 
         # Send transcription and personality response via websocket if available
