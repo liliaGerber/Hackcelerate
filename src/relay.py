@@ -8,6 +8,11 @@ from flasgger import Swagger
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sock import Sock
+import pickle
+from sklearn.feature_extraction.text import CountVectorizer
+import plotly.express as px
+import pandas as pd
+import re
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -16,12 +21,21 @@ swagger = Swagger(app)
 
 sessions = {}
 
+cEXT = pickle.load(open("data/models/cEXT.p", "rb"))
+cNEU = pickle.load(open("data/models/cNEU.p", "rb"))
+cAGR = pickle.load(open("data/models/cAGR.p", "rb"))
+cCON = pickle.load(open("data/models/cCON.p", "rb"))
+cOPN = pickle.load(open("data/models/cOPN.p", "rb"))
+vectorizer_31 = pickle.load( open( "data/models/vectorizer_31.p", "rb"))
+vectorizer_30 = pickle.load( open( "data/models/vectorizer_30.p", "rb"))
 
 def transcribe_whisper(audio_recording):
     audio_file = io.BytesIO(audio_recording)
     audio_file.name = 'audio.wav'  # Whisper requires a filename with a valid extension
 
-    model_size = "large-v3"
+    #model_size = "medium"
+    model_size = "large-v3-turbo"
+
     if torch.cuda.is_available():
         DEVICE = "cuda"  # CUDA for NVIDIA GPUs
     elif torch.backends.mps.is_available():
@@ -35,7 +49,6 @@ def transcribe_whisper(audio_recording):
     print(f"openai transcription: {transcription}")
     return transcription
 
-
 # def transcribe_preview(session):
 #     if session["audio_buffer"] is not None:
 #         text = transcribe_whisper(session["audio_buffer"])
@@ -48,6 +61,18 @@ def transcribe_whisper(audio_recording):
 #                 "language": session["language"]
 #             }
 #             ws.send(json.dumps(message))
+
+def predict_personality(text):
+    scentences = re.split("(?<=[.!?]) +", text)
+    text_vector_31 = vectorizer_31.transform(scentences)
+    text_vector_30 = vectorizer_30.transform(scentences)
+    EXT = cEXT.predict(text_vector_31)
+    NEU = cNEU.predict(text_vector_30)
+    AGR = cAGR.predict(text_vector_31)
+    CON = cCON.predict(text_vector_31)
+    OPN = cOPN.predict(text_vector_31)
+    return [EXT[0], NEU[0], AGR[0], CON[0], OPN[0]]
+
 
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
@@ -211,12 +236,20 @@ def close_session(chat_session_id, session_id):
         # TODO preprocess audio/text, extract and save speaker identification
 
         text = transcribe_whisper(sessions[session_id]["audio_buffer"])
+
+        #Active Personality Trait Prediction
+        sentiment_text = text #'It is important to note that each of the five personality factors represents a range'
+        predictions = predict_personality(sentiment_text)
+        print("predicted personality:", predictions)
+        df = pd.DataFrame(dict(r=predictions, theta=['EXT','NEU','AGR', 'CON', 'OPN']))
+        
         # send transcription
         ws = sessions[session_id].get("websocket")
         if ws:
             message = {
                 "event": "recognized",
                 "text": text,
+                "personality_traits" : df,
                 "language": sessions[session_id]["language"]
             }
             ws.send(json.dumps(message))
