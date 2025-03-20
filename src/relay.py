@@ -137,7 +137,8 @@ def predict_personality(text: str) -> list[np.int32]:
 
 # ----------------------- Flask Endpoints -----------------------
 
-@sock.route('/ws')
+
+@sock.route("/ws")
 def websocket(ws):
     clients.add(ws)
     try:
@@ -146,8 +147,8 @@ def websocket(ws):
             if message is None:
                 break
     finally:
-        print("remove")
         clients.remove(ws)
+
 
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
@@ -195,10 +196,12 @@ def close_session(chat_session_id, session_id):
         text = str(*transcription) if isinstance(transcription, list) else str(transcription)
         predictions = predict_personality(text)
         print("Predicted personality traits:", predictions)
-        df = pd.DataFrame({
-            "r": predictions,
-            "theta": ["EXT", "NEU", "AGR", "CON", "OPN"],
-        })
+        df = pd.DataFrame(
+            {
+                "r": predictions,
+                "theta": ["EXT", "NEU", "AGR", "CON", "OPN"],
+            }
+        )
 
         for client in clients:
             try:
@@ -206,7 +209,6 @@ def close_session(chat_session_id, session_id):
             except Exception as e:
                 print(e)
                 pass  # Ignore errors if client disconnects
-
 
         # Generate output stream from external chat model
         message_content = (
