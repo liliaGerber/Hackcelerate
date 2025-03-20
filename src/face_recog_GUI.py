@@ -1,15 +1,12 @@
 import time
+
 import cv2
 import mediapipe as mp
 import numpy as np
 
 # Initialize Mediapipe Face Mesh for lip movement tracking
 mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(
-    static_image_mode=False,
-    max_num_faces=5,
-    refine_landmarks=False
-)
+face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=5, refine_landmarks=False)
 
 # Start webcam capture
 cap = cv2.VideoCapture(0)
@@ -95,7 +92,8 @@ while cap.isOpened():
 
     # Remove faces that haven't spoken in the last `SPEAKING_TIMEOUT` seconds
     speaking_faces = {
-        face_id: last_time for face_id, last_time in speaking_faces.items()
+        face_id: last_time
+        for face_id, last_time in speaking_faces.items()
         if time.time() - last_time <= SPEAKING_TIMEOUT
     }
 
@@ -103,13 +101,44 @@ while cap.isOpened():
     for face_id, (x1, y1, x2, y2) in face_trackers.items():
         color = (0, 0, 255) if face_id in speaking_faces else (0, 255, 0)
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        cv2.putText(frame, f"Face {face_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, color, 2, cv2.LINE_AA)
+        cv2.putText(frame, f"Face {face_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
 
     # Draw lip landmarks
-    lip_indices = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82,
-                   13, 312, 311, 310, 415, 146, 91, 181, 84, 17, 314, 405, 321,
-                   375, 178, 87, 14, 317, 402]
+    lip_indices = [
+        61,
+        185,
+        40,
+        39,
+        37,
+        267,
+        269,
+        270,
+        409,
+        78,
+        191,
+        80,
+        81,
+        82,
+        13,
+        312,
+        311,
+        310,
+        415,
+        146,
+        91,
+        181,
+        84,
+        17,
+        314,
+        405,
+        321,
+        375,
+        178,
+        87,
+        14,
+        317,
+        402,
+    ]
 
     if results.multi_face_landmarks:
         for face_landmarks in results.multi_face_landmarks:
@@ -122,14 +151,13 @@ while cap.isOpened():
     # Display currently speaking face(s) in bottom-left corner (Persist for 1 second)
     if speaking_faces:
         speaking_text = "Speaking: " + ", ".join(f"Face {fid}" for fid in speaking_faces.keys())
-        cv2.putText(frame, speaking_text, (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, speaking_text, (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
     # Display the frame
     cv2.imshow("Face Tracking", frame)
 
     # Stop if 'q' is pressed
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
     # Update face trackers

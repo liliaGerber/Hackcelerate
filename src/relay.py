@@ -12,20 +12,18 @@ from typing import Any
 import cv2
 import mediapipe as mp
 import numpy as np
-import simple_websocket
-from insightface.app import FaceAnalysis
-from sqlalchemy import create_engine, Column, Integer, String, Numeric, Text
-from sqlalchemy.orm import sessionmaker, declarative_base
-
 import pandas as pd
+import simple_websocket
 import torch
-from faster_whisper import WhisperModel
 from flasgger import Swagger
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sock import Sock
+from insightface.app import FaceAnalysis
 from ollama import chat
 from sentence_transformers import SentenceTransformer
+from sqlalchemy import Column, Integer, Numeric, String, Text, create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 from transformers import pipeline
 from transformers.utils import is_flash_attn_2_available
 
@@ -42,10 +40,12 @@ sessions = {}
 clients: set[simple_websocket.ws.Server] = set()
 DB_PATH = os.path.join(os.path.dirname(__file__), "memories.sqlite")
 
+
 # ----------------------- Model and Vectorizer Loading -----------------------
 def load_pickle_model(path):
     with open(path, "rb") as f:
         return pickle.load(f)
+
 
 cEXT = load_pickle_model("data/models/cEXT.p")
 cNEU = load_pickle_model("data/models/cNEU.p")
@@ -57,20 +57,23 @@ vectorizer_30 = load_pickle_model("data/models/vectorizer_30.p")
 
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
+
 # ----------------------- Database Setup -----------------------
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS memories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id TEXT PRIMARY KEY,
                 chat_session_id TEXT,
                 text TEXT,
                 embedding TEXT,
-                entity TEXT
+                entity TEXT,
+                current_summary TEXT
             )
         """)
         conn.commit()
+
 
 # ----------------------- Database Setup for Facial Recognition -----------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -80,6 +83,7 @@ Base = declarative_base()
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Session = sessionmaker(bind=engine)
 db_session = Session()
+
 
 class User(Base):
     __tablename__ = "user"
@@ -98,15 +102,12 @@ class User(Base):
     hobbies = Column(Text, nullable=True)
     image = Column(String, nullable=True)
 
+
 Base.metadata.create_all(engine)
 
 # ----------------------- Facial Recognition Initialization -----------------------
 mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(
-    static_image_mode=False,
-    max_num_faces=5,
-    refine_landmarks=True
-)
+face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=5, refine_landmarks=True)
 
 face_recognizer = FaceAnalysis(providers=["CPUExecutionProvider"])
 face_recognizer.prepare(ctx_id=0, det_size=(640, 640))
@@ -138,9 +139,11 @@ speaking_status = {}
 last_speaking_time = {}
 silent_threshold = 1.5
 
+
 def calculate_lip_distance(landmarks):
     """Calculate the vertical distance between two key lip landmarks."""
     return abs(landmarks[13].y - landmarks[14].y)
+
 
 def get_face_identity(face_embedding, threshold=0.6):
     """Return the identity of the face if similarity exceeds threshold."""
@@ -151,6 +154,7 @@ def get_face_identity(face_embedding, threshold=0.6):
     if similarities[best_match] >= threshold:
         return best_match
     return None
+
 
 # ----------------------- Face Recognition Loop (Active Speaker Logic) -----------------------
 def face_recognition_loop(stop_event):
@@ -181,19 +185,15 @@ def face_recognition_loop(stop_event):
             for face in face_rec_results:
                 identity = get_face_identity(face.normed_embedding) or f"Person_{len(known_faces) + 1}"
                 best_match_id = None
-                min_distance = float('inf')
+                min_distance = float("inf")
                 if results.multi_face_landmarks:
                     for face_id, face_landmarks in enumerate(results.multi_face_landmarks):
                         # Use the nose tip as reference
                         nose = face_landmarks.landmark[1]
-                        landmark_center = np.array([
-                            nose.x * frame.shape[1] * scale_factor,
-                            nose.y * frame.shape[0] * scale_factor
-                        ])
-                        face_center = np.array([
-                            face.bbox[0] + face.bbox[2] / 2,
-                            face.bbox[1] + face.bbox[3] / 2
-                        ])
+                        landmark_center = np.array(
+                            [nose.x * frame.shape[1] * scale_factor, nose.y * frame.shape[0] * scale_factor]
+                        )
+                        face_center = np.array([face.bbox[0] + face.bbox[2] / 2, face.bbox[1] + face.bbox[3] / 2])
                         distance = np.linalg.norm(face_center - landmark_center)
                         if distance < min_distance:
                             min_distance = distance
@@ -221,7 +221,7 @@ def face_recognition_loop(stop_event):
                 previous_lip_distance[face_id] = lip_distance
 
         if active_speakers:
-            print("Currently Speaking:", ', '.join(active_speakers))
+            print("Currently Speaking:", ", ".join(active_speakers))
         current_time = time.time()
         fps = 1 / (current_time - prev_time)
         # print(f"FPS: {fps:.2f}")
@@ -229,10 +229,12 @@ def face_recognition_loop(stop_event):
 
     cap.release()
 
+
 # ----------------------- Additional Utility Functions -----------------------
 def get_embedding(text):
     embedding = embedding_model.encode(text)
     return embedding.tolist()
+
 
 def cosine_similarity(vec1, vec2):
     vec1 = np.array(vec1)
@@ -241,6 +243,7 @@ def cosine_similarity(vec1, vec2):
     if norm1 == 0 or norm2 == 0:
         return 0.0
     return float(np.dot(vec1, vec2) / (norm1 * norm2))
+
 
 def transcribe_whisper(audio_recording: bytes):
     audio_file = io.BytesIO(audio_recording)
@@ -252,13 +255,16 @@ def transcribe_whisper(audio_recording: bytes):
         device = "mps"
     else:
         device = "cpu"
+
+    # Insanely Faster Whisper Speech to Text
     pipe = pipeline(
         "automatic-speech-recognition",
         model="openai/whisper-" + str(model_size),
         torch_dtype=torch.float16,
         device=device,
         model_kwargs={"attn_implementation": "flash_attention_2"}
-        if is_flash_attn_2_available() else {"attn_implementation": "sdpa"},
+        if is_flash_attn_2_available()
+        else {"attn_implementation": "sdpa"},
     )
     outputs = pipe(
         audio_recording,
@@ -267,21 +273,49 @@ def transcribe_whisper(audio_recording: bytes):
         return_timestamps=False,
     )
     transcription = outputs["text"]
+
+    # Faster Whisper Speech to Text
+    # model = WhisperModel(model_size, device=device, compute_type="int8")
+    # segments, info = model.transcribe(audio_file, beam_size=5)
+    # segments = list(segments)
+    # transcription = [segment.text for segment in segments]
+
     print(f"Transcription segments: {transcription}")
     return transcription
 
+
+# def transcribe_preview(session):
+#     if session["audio_buffer"] is not None:
+#         text = transcribe_whisper(session["audio_buffer"])
+#         # send transcription
+#         ws = session.get("websocket")
+#         if ws:
+#             message = {
+#                 "event": "recognizing",
+#                 "text": text,
+#                 "language": session["language"]
+#             }
+#             ws.send(json.dumps(message))
+
+
 def predict_personality(text: str) -> list[np.int32]:
+    """Predict personality traits from text using preloaded classifiers and vectorizers.
+    Returns a list: [EXT, NEU, AGR, CON, OPN].
+    """
     sentences = re.split(r"(?<=[.!?]) +", text)
     text_vector_31 = vectorizer_31.transform(sentences)
     text_vector_30 = vectorizer_30.transform(sentences)
-    EXT = cEXT.predict(text_vector_31)
-    NEU = cNEU.predict(text_vector_30)
-    AGR = cAGR.predict(text_vector_31)
-    CON = cCON.predict(text_vector_31)
-    OPN = cOPN.predict(text_vector_31)
-    return [EXT[0], NEU[0], AGR[0], CON[0], OPN[0]]
+    ext = cEXT.predict(text_vector_31)
+    neu = cNEU.predict(text_vector_30)
+    agr = cAGR.predict(text_vector_31)
+    con = cCON.predict(text_vector_31)
+    opn = cOPN.predict(text_vector_31)
+    return [ext[0], neu[0], agr[0], con[0], opn[0]]
+
 
 # ----------------------- Flask Endpoints -----------------------
+
+
 @sock.route("/ws")
 def websocket(ws):
     print(">>> call ws")
@@ -293,6 +327,7 @@ def websocket(ws):
                 break
     finally:
         clients.remove(ws)
+
 
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
@@ -311,15 +346,17 @@ def open_session(chat_session_id):
         "language": body["language"],
         "websocket": None,
         "face_stop_event": stop_event,
-        "face_thread": face_thread
+        "face_thread": face_thread,
     }
     return jsonify({"session_id": session_id})
+
 
 @app.route("/chats/<chat_session_id>/sessions/<session_id>/wav", methods=["POST"])
 def upload_audio_chunk(chat_session_id, session_id):
     print(">>> call upload_audio_chunk")
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
+
     audio_data = request.get_data()
     if sessions[session_id]["audio_buffer"] is not None:
         sessions[session_id]["audio_buffer"] += audio_data
@@ -327,33 +364,41 @@ def upload_audio_chunk(chat_session_id, session_id):
         sessions[session_id]["audio_buffer"] = audio_data
     return jsonify({"status": "audio_chunk_received"})
 
+
 @app.route("/chats/<chat_session_id>/sessions/<session_id>", methods=["DELETE"])
 def close_session(chat_session_id, session_id):
     print(">>> call close_session")
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
+
     session = sessions[session_id]
     if session["audio_buffer"] is not None:
+        # TODO preprocess audio/text, extract and save speaker identification
         transcription = transcribe_whisper(session["audio_buffer"])
         text = (str(*transcription) if isinstance(transcription, list) else str(transcription)).strip()
         predictions = predict_personality(text)
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
         message_content = (
-            "Answer this asked by user " + text +
-            " Give reply based on personality traits without mentioning about it in response " +
-            str(df.to_string())
+            "Answer this asked by user "
+            + text
+            + " Give reply based on personality traits without mentioning about it in response "
+            + str(df.to_string())
         )
         stream = chat(
             model="gemma3:1b",
+            # model="deepseek-r1:1.5b"
             messages=[{"role": "user", "content": message_content}],
             stream=True,
         )
+
         response_content = ""
         for chunk in stream:
             chunk_text = chunk["message"]["content"]
             print(chunk_text, end="", flush=True)
             response_content += chunk_text
+
+        # Send transcription and personality response via websocket if available
         ws = session.get("websocket")
         if ws:
             message = {
@@ -362,10 +407,12 @@ def close_session(chat_session_id, session_id):
                 "language": session["language"],
             }
             ws.send(json.dumps(message))
+
+        # TODO: Update user profile + send data to frontend2
         for client in clients:
             try:
-                data = [prediction.item() for prediction in predictions]
-                data.append("John")  # Hardcoded name for now
+                data: list[Any] = [prediction.item() for prediction in predictions]
+                data.append("John")  # TODO: hardcoded customer name for now
                 data.append(response_content)
                 data.append(text)
                 client.send(json.dumps(data))
@@ -378,6 +425,7 @@ def close_session(chat_session_id, session_id):
     sessions.pop(session_id, None)
     return jsonify({"status": "session_closed"})
 
+
 @sock.route("/ws/chats/<chat_session_id>/sessions/<session_id>")
 def speech_socket(ws, chat_session_id, session_id):
     print(">>> call speech_socket")
@@ -385,43 +433,87 @@ def speech_socket(ws, chat_session_id, session_id):
         ws.send(json.dumps({"error": "Session not found"}))
         return
     sessions[session_id]["websocket"] = ws
+
     while True:
         msg = ws.receive()
         if msg is None:
             break
 
-@app.route("/chats/<chat_session_id>/set-memories", methods=["POST"])
-def set_memories(chat_session_id):
-    print(">>> call set_memories")
-    chat_history = request.get_json()
-    is_bot = True
-    chat_history = chat_history["chat_history"]
+
+def summarize_text(previous_summary, new_messages):
+    """Generate a concise updated summary based on the previous summary and new messages."""
+    new_content = " ".join([msg["text"] for msg in new_messages if msg.get("text")])
+    prompt = f"Previous summary: {previous_summary}\nNew messages: {new_content}\nGenerate an updated concise summary:"
+    response = chat(model="your-summarization-model", messages=[{"role": "user", "content": prompt}])
+    return response.get("message", {}).get("content", previous_summary)  # Fallback to previous summary
+
+
+def store_memories(chat_session_id, chat_history):
+    """Store chat messages asynchronously to improve performance."""
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
-        for message in chat_history:
+
+        # Fetch existing memory IDs
+        all_id_rows = c.execute("SELECT id FROM memories").fetchall()
+        all_ids = {row[0] for row in all_id_rows}
+        current_chats = [msg for msg in chat_history if msg["id"] not in all_ids]
+
+        if not current_chats:
+            return
+
+        # Fetch the last summary
+        last_summary_row = c.execute(
+            "SELECT current_summary FROM memories WHERE chat_session_id = ? ORDER BY id DESC LIMIT 1",
+            (chat_session_id,),
+        ).fetchone()
+        last_summary = last_summary_row[0] if last_summary_row else ""
+
+        # Generate new summary
+        new_summary = summarize_text(last_summary, current_chats)
+
+        # Insert new messages into the database
+        for message in current_chats:
             text = message.get("text", "").strip()
             if not text:
                 continue
+
             embedding_str = json.dumps(get_embedding(text))
             c.execute(
-                "INSERT INTO memories (chat_session_id, text, embedding, entity) VALUES (?, ?, ?, ?)",
-                (chat_session_id, text, embedding_str, "BOT" if is_bot else "USER"),
+                "INSERT INTO memories (id, chat_session_id, text, embedding, entity, current_summary) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (message["id"], chat_session_id, text, embedding_str, message["type"], new_summary),
             )
-            is_bot = not is_bot
+
         conn.commit()
-    print(f"{chat_session_id}: Stored {len(chat_history)} memories.")
+
+
+@app.route("/chats/<chat_session_id>/set-memories", methods=["POST"])
+def set_memories(chat_session_id):
+    """Store chat messages asynchronously and return success response immediately."""
+    print(">>> call set_memories")
+    chat_history = request.get_json()
+
+    # background thread for memory storage
+    threading.Thread(target=store_memories, args=(chat_session_id, chat_history)).start()
+
     return jsonify({"success": "1"})
+
 
 @app.route("/chats/<chat_session_id>/get-memories", methods=["GET"])
 def get_memories(chat_session_id):
-    print(">>> call get-memories")
+    """Retrieve stored memories for a specific chat session.
+    Optionally filter memories based on a query parameter using cosine similarity.
+    """
+    print(">>> call get_memories")
     query_text = request.args.get("query", None)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("SELECT text, embedding, entity FROM memories WHERE chat_session_id = ?", (chat_session_id,))
         rows = c.fetchall()
+
     if not rows:
         return jsonify({"memories": "<empty>"})
+
     memories = []
     if query_text:
         query_embedding = get_embedding(query_text)
@@ -432,10 +524,13 @@ def get_memories(chat_session_id):
         memories = sorted(memories, key=lambda x: x["similarity"], reverse=True)[:3]
     else:
         memories = [{"text": row[0]} for row in rows]
+
     print(f"{chat_session_id}: Retrieved {len(memories)} memories.")
     return jsonify({"memories": "".join([m["text"] for m in memories])})
 
+
 # ----------------------- Application Startup -----------------------
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)

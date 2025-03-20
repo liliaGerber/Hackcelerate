@@ -1,15 +1,12 @@
 import time
+
 import cv2
 import mediapipe as mp
 import numpy as np
 
 # Initialize Mediapipe Face Mesh for lip movement tracking
 mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(
-    static_image_mode=False,
-    max_num_faces=5,
-    refine_landmarks=False
-)
+face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=5, refine_landmarks=False)
 
 # Start webcam capture
 cap = cv2.VideoCapture(0)
@@ -22,16 +19,18 @@ face_names = {0: "Lili", 1: "Rodrigo", 2: "Mudi", 3: "Shrey"}
 
 # Store previous lip positions and track faces
 previous_lip_distance = {}
-face_trackers = {}   # face_id -> bounding box (x1, y1, x2, y2)
+face_trackers = {}  # face_id -> bounding box (x1, y1, x2, y2)
 next_face_id = 0
 
 # Dictionary to keep track of speaking status (face_id -> last speaking timestamp)
 speaking_faces = {}
 SPEAKING_TIMEOUT = 0.5  # seconds before a face is considered silent
 
+
 def calculate_lip_distance(landmarks):
     """Calculates the vertical distance between the upper and lower lip."""
     return abs(landmarks[13].y - landmarks[14].y)
+
 
 def find_closest_face(new_bbox):
     """Finds the closest existing face based on bounding box proximity."""
@@ -44,6 +43,7 @@ def find_closest_face(new_bbox):
             min_distance = distance
             closest_face_id = face_id
     return closest_face_id
+
 
 prev_time = time.time()
 
@@ -89,7 +89,8 @@ while cap.isOpened():
 
     # Remove faces that haven't spoken recently
     speaking_faces = {
-        face_id: last_time for face_id, last_time in speaking_faces.items()
+        face_id: last_time
+        for face_id, last_time in speaking_faces.items()
         if time.time() - last_time <= SPEAKING_TIMEOUT
     }
 
@@ -99,13 +100,44 @@ while cap.isOpened():
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         # Use the pre-assigned name if available, else use a generic label
         name = face_names.get(face_id, f"Face {face_id}")
-        cv2.putText(frame, name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5, color, 2, cv2.LINE_AA)
+        cv2.putText(frame, name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2, cv2.LINE_AA)
 
     # Draw lip landmarks for visual reference
-    lip_indices = [61, 185, 40, 39, 37, 267, 269, 270, 409, 78, 191, 80, 81, 82,
-                   13, 312, 311, 310, 415, 146, 91, 181, 84, 17, 314, 405, 321,
-                   375, 178, 87, 14, 317, 402]
+    lip_indices = [
+        61,
+        185,
+        40,
+        39,
+        37,
+        267,
+        269,
+        270,
+        409,
+        78,
+        191,
+        80,
+        81,
+        82,
+        13,
+        312,
+        311,
+        310,
+        415,
+        146,
+        91,
+        181,
+        84,
+        17,
+        314,
+        405,
+        321,
+        375,
+        178,
+        87,
+        14,
+        317,
+        402,
+    ]
     if results.multi_face_landmarks:
         for face_landmarks in results.multi_face_landmarks:
             for idx in lip_indices:
@@ -118,18 +150,16 @@ while cap.isOpened():
     # Display speaking faces in the bottom-left corner
     if speaking_faces:
         speaking_text = "Speaking: " + ", ".join(face_names.get(fid, f"Face {fid}") for fid in speaking_faces.keys())
-        cv2.putText(frame, speaking_text, (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, speaking_text, (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
     # Display FPS
-    cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
-                0.7, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.putText(frame, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
     cv2.namedWindow("Face Tracking", cv2.WINDOW_NORMAL)
     cv2.setWindowProperty("Face Tracking", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     # Show the frame with overlays
     cv2.imshow("Face Tracking", frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
     face_trackers = updated_face_trackers.copy()

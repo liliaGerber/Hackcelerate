@@ -1,24 +1,25 @@
+import os
 import time
+
 import cv2
 import mediapipe as mp
 import numpy as np
 from insightface.app import FaceAnalysis
-from sqlalchemy import create_engine, Column, Integer, String, Numeric, Text
-from sqlalchemy.orm import sessionmaker, declarative_base
-import os
-import threading
+from sqlalchemy import Column, Integer, Numeric, String, Text, create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Enable OpenCL for potential hardware acceleration
 cv2.ocl.setUseOpenCL(True)
 
 # --- Database Initialization ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE_PATH = os.path.join(BASE_DIR, '..', 'memories.sqlite')
+DATABASE_PATH = os.path.join(BASE_DIR, "..", "memories.sqlite")
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 Base = declarative_base()
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Session = sessionmaker(bind=engine)
 session = Session()
+
 
 # Define the User model
 class User(Base):
@@ -37,6 +38,7 @@ class User(Base):
     allergies = Column(String, nullable=True)
     hobbies = Column(Text, nullable=True)
     image = Column(String, nullable=True)
+
 
 # Ensure the table exists before querying
 Base.metadata.create_all(engine)
@@ -80,9 +82,11 @@ speaking_status = {}
 last_speaking_time = {}
 silent_threshold = 1.5
 
+
 def calculate_lip_distance(landmarks):
     """Calculate the vertical distance between two key lip landmarks."""
     return abs(landmarks[13].y - landmarks[14].y)
+
 
 def get_face_identity(face_embedding, threshold=0.6):
     """Return the identity of the face if similarity exceeds threshold."""
@@ -94,6 +98,7 @@ def get_face_identity(face_embedding, threshold=0.6):
     if similarities[best_match] >= threshold:
         return best_match
     return None
+
 
 prev_time = time.time()
 
@@ -120,21 +125,17 @@ while cap.isOpened():
             # Identify the face
             identity = get_face_identity(face.normed_embedding) or f"Person_{len(known_faces) + 1}"
             best_match_id = None
-            min_distance = float('inf')
+            min_distance = float("inf")
 
             # If face mesh detects landmarks, try to match face detection with landmarks
             if results.multi_face_landmarks:
                 for face_id, face_landmarks in enumerate(results.multi_face_landmarks):
                     # Use nose tip (landmark index 1) as reference point; adjust coordinates from small frame to original
                     nose = face_landmarks.landmark[1]
-                    landmark_center = np.array([
-                        nose.x * frame.shape[1] * scale_factor,
-                        nose.y * frame.shape[0] * scale_factor
-                    ])
-                    face_center = np.array([
-                        face.bbox[0] + face.bbox[2] / 2,
-                        face.bbox[1] + face.bbox[3] / 2
-                    ])
+                    landmark_center = np.array(
+                        [nose.x * frame.shape[1] * scale_factor, nose.y * frame.shape[0] * scale_factor]
+                    )
+                    face_center = np.array([face.bbox[0] + face.bbox[2] / 2, face.bbox[1] + face.bbox[3] / 2])
                     distance = np.linalg.norm(face_center - landmark_center)
                     if distance < min_distance:
                         min_distance = distance
@@ -166,7 +167,7 @@ while cap.isOpened():
             previous_lip_distance[face_id] = lip_distance
 
     if active_speakers:
-        print("Currently Speaking:", ', '.join(active_speakers))
+        print("Currently Speaking:", ", ".join(active_speakers))
 
     # FPS calculation for performance monitoring
     current_time = time.time()

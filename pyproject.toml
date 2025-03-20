@@ -26,6 +26,7 @@ faster-whisper = "^1.1.1"
 mediapipe = "^0.10.21"
 insightface = "^0.7.3"
 opencv-python = "^4.11.0.86"
+sqlalchemy = "^2.0.39"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
