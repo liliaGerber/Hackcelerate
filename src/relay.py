@@ -378,6 +378,24 @@ def close_session(chat_session_id, session_id):
             else {"attn_implementation": "sdpa"},
         )
 
+        # Text to speech based on the response content
+        engine = pyttsx3.init()  # Object creation
+        # Setting a new speaking rate
+        engine.setProperty('rate', 200)
+
+        # Getting the current volume level
+        volume = engine.getProperty('volume')
+        # Setting a new volume level
+        engine.setProperty('volume', 0.8)  # Max volume
+
+        # Selecting a voice (0 for male, 1 for female, etc.)
+        voices = engine.getProperty('voices')
+        engine.setProperty('voice', voices[1].id)
+
+        #Add your own preliminary prompt
+        engine.say("Just give me a moment to process that.")
+        engine.runAndWait()
+
         transcription = transcribe_whisper(session["audio_buffer"], pipe)
         text = (str(*transcription) if isinstance(transcription, list) else str(transcription)).strip()
         predictions = predict_personality(text)
@@ -401,19 +419,6 @@ def close_session(chat_session_id, session_id):
             print(chunk_text, end="", flush=True)
             response_content += chunk_text
 
-        # Text to speech based on the response content
-        engine = pyttsx3.init()  # Object creation
-        # Setting a new speaking rate
-        engine.setProperty('rate', 200)
-
-        # Getting the current volume level
-        volume = engine.getProperty('volume')
-        # Setting a new volume level
-        engine.setProperty('volume', 0.8)  # Max volume
-
-        # Selecting a voice (0 for male, 1 for female, etc.)
-        voices = engine.getProperty('voices')
-        engine.setProperty('voice', voices[1].id)
         engine.say(response_content)
         # Run the speech engine
         engine.runAndWait()
