@@ -244,6 +244,7 @@ def close_session(chat_session_id, session_id):
         )
         stream = chat(
             model="gemma3:1b",
+            #model="deepseek-r1:1.5b",
             messages=[{"role": "user", "content": message_content}],
             stream=True,
         )
@@ -317,6 +318,7 @@ def get_memories(chat_session_id):
     """Retrieve stored memories for a specific chat session.
     Optionally filter memories based on a query parameter using cosine similarity.
     """
+    print("it works")
     query_text = request.args.get("query", None)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
