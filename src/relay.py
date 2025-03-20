@@ -15,6 +15,8 @@ from flask_cors import CORS
 from flask_sock import Sock
 from sentence_transformers import SentenceTransformer
 
+from ollama import chat
+
 app = Flask(__name__)
 sock = Sock(app)
 cors = CORS(app)
@@ -269,7 +271,6 @@ def close_session(chat_session_id, session_id):
 
     if sessions[session_id]["audio_buffer"] is not None:
         # TODO preprocess audio/text, extract and save speaker identification
-
         text = transcribe_whisper(sessions[session_id]["audio_buffer"])
 
         # Active Personality Trait Prediction
