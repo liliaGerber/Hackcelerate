@@ -37,7 +37,7 @@ last_speaking_time = {}
 silent_threshold = 1.5
 
 
-def calculate_lip_distance(landmarks):y
+def calculate_lip_distance(landmarks):
     return abs(landmarks[13].y - landmarks[14].y)
 
 
