@@ -444,7 +444,7 @@ def summarize_text(previous_summary, new_messages):
     """Generate a concise updated summary based on the previous summary and new messages."""
     new_content = " ".join([msg["text"] for msg in new_messages if msg.get("text")])
     prompt = f"Previous summary: {previous_summary}\nNew messages: {new_content}\nGenerate an updated concise summary:"
-    response = chat(model="your-summarization-model", messages=[{"role": "user", "content": prompt}])
+    response = chat(model="gemma3:1b", messages=[{"role": "user", "content": prompt}])
     return response.get("message", {}).get("content", previous_summary)  # Fallback to previous summary
 
 
