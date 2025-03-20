@@ -60,7 +60,8 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 chat_session_id TEXT,
                 text TEXT,
-                embedding TEXT
+                embedding TEXT,
+                entity TEXT
             )
         """)
         conn.commit()
@@ -96,7 +97,7 @@ def transcribe_whisper(audio_recording: bytes):
     if torch.cuda.is_available():
         device = "cuda"
     elif torch.backends.mps.is_available():
-        device = "cpu"  # Use CPU for MPS devices as needed
+        device = "mps"  # Use CPU for MPS devices as needed
     else:
         device = "cpu"
 
@@ -240,7 +241,7 @@ def close_session(chat_session_id, session_id):
         )
         stream = chat(
             model="gemma3:1b",
-            #model="deepseek-r1:1.5b",
+            # model="deepseek-r1:1.5b",
             messages=[{"role": "user", "content": message_content}],
             stream=True,
         )
@@ -299,12 +300,9 @@ def speech_socket(ws, chat_session_id, session_id):
 def set_memories(chat_session_id):
     """Store chat messages with embeddings as memories for a given chat session."""
     print(">>> call set_memories")
-    data = request.get_json()
-    if not data or "chat_history" not in data:
-        return jsonify({"error": "Invalid data, chat_history missing"}), 400
+    chat_history = request.get_json()
+    is_bot = True
 
-    chat_history = data["chat_history"]
-    print("chat_history", chat_history)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         for message in chat_history:
@@ -313,9 +311,10 @@ def set_memories(chat_session_id):
                 continue
             embedding_str = json.dumps(get_embedding(text))
             c.execute(
-                "INSERT INTO memories (chat_session_id, text, embedding) VALUES (?, ?, ?)",
-                (chat_session_id, text, embedding_str),
+                "INSERT INTO memories (chat_session_id, text, embedding, entity) VALUES (?, ?, ?, ?)",
+                (chat_session_id, text, embedding_str, "BOT" if is_bot else "USER"),
             )
+            is_bot = not is_bot
         conn.commit()
 
     print(f"{chat_session_id}: Stored {len(chat_history)} memories.")
@@ -331,7 +330,7 @@ def get_memories(chat_session_id):
     query_text = request.args.get("query", None)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
-        c.execute("SELECT text, embedding FROM memories WHERE chat_session_id = ?", (chat_session_id,))
+        c.execute("SELECT text, embedding, entity FROM memories WHERE chat_session_id = ?", (chat_session_id,))
         rows = c.fetchall()
 
     if not rows:

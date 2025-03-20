@@ -1,7 +1,3 @@
-from faster_whisper import WhisperModel
-
-import torch
-from transformers import pipeline
 
 import torch
 from transformers import pipeline
@@ -9,10 +5,12 @@ from transformers.utils import is_flash_attn_2_available
 
 pipe = pipeline(
     "automatic-speech-recognition",
-    model="openai/whisper-large-v3-turbo", # select checkpoint from https://huggingface.co/openai/whisper-large-v3#model-details
+    model="openai/whisper-large-v3-turbo",  # select checkpoint from https://huggingface.co/openai/whisper-large-v3#model-details
     torch_dtype=torch.float16,
-    device="cuda:0", # or mps for Mac devices
-    model_kwargs={"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {"attn_implementation": "sdpa"},
+    device="cuda:0",  # or mps for Mac devices
+    model_kwargs={"attn_implementation": "flash_attention_2"}
+    if is_flash_attn_2_available()
+    else {"attn_implementation": "sdpa"},
 )
 
 outputs = pipe(
@@ -22,8 +20,8 @@ outputs = pipe(
     return_timestamps=True,
 )
 
-print(outputs['text'])
-'''
+print(outputs["text"])
+"""
 model_size = "large-v3-turbo"
 
 # Run on GPU with FP16
@@ -43,4 +41,4 @@ segments, info = model.transcribe("audio.mp3", beam_size=2)
 transcription = " ".join(segment.text.strip() for segment in segments)
 
 print(transcription)
-'''
+"""

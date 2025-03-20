@@ -1,5 +1,6 @@
 import pickle
 import re
+
 import pandas as pd
 
 cEXT = pickle.load(open("data/models/cEXT.p", "rb"))
@@ -9,6 +10,7 @@ cCON = pickle.load(open("data/models/cCON.p", "rb"))
 cOPN = pickle.load(open("data/models/cOPN.p", "rb"))
 vectorizer_31 = pickle.load(open("data/models/vectorizer_31.p", "rb"))
 vectorizer_30 = pickle.load(open("data/models/vectorizer_30.p", "rb"))
+
 
 def predict_personality(text):
     scentences = re.split("(?<=[.!?]) +", text)
@@ -20,6 +22,7 @@ def predict_personality(text):
     CON = cCON.predict(text_vector_31)
     OPN = cOPN.predict(text_vector_31)
     return [EXT[0], NEU[0], AGR[0], CON[0], OPN[0]]
+
 
 text = "It is important to note that each of the five personality "
 
