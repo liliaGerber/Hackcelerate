@@ -26,6 +26,7 @@ from sqlalchemy import Column, Integer, Numeric, String, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from transformers import pipeline
 from transformers.utils import is_flash_attn_2_available
+import pyttsx3
 
 cv2.ocl.setUseOpenCL(True)
 
@@ -380,14 +381,13 @@ def close_session(chat_session_id, session_id):
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
         message_content = (
-            "Answer this asked by user "
+            "Answer this asked by user (No special characters)"
             + text
             + " Give reply based on personality traits without mentioning about it in response "
             + str(df.to_string())
         )
         stream = chat(
             model="gemma3:1b",
-            # model="deepseek-r1:1.5b"
             messages=[{"role": "user", "content": message_content}],
             stream=True,
         )
@@ -397,6 +397,18 @@ def close_session(chat_session_id, session_id):
             chunk_text = chunk["message"]["content"]
             print(chunk_text, end="", flush=True)
             response_content += chunk_text
+
+        # Text to speech based on the response content
+        engine = pyttsx3.init()  # Object creation
+        # Setting a new speaking rate
+        engine.setProperty('rate', 200)
+
+        # Selecting a voice (0 for male, 1 for female, etc.)
+        voices = engine.getProperty('voices')
+        engine.setProperty('voice', voices[1].id)
+        engine.say(response_content)
+        # Run the speech engine
+        engine.runAndWait()
 
         # Send transcription and personality response via websocket if available
         ws = session.get("websocket")
