@@ -1,4 +1,4 @@
-#from faster_whisper import WhisperModel
+from faster_whisper import WhisperModel
 
 import torch
 from transformers import pipeline
@@ -17,13 +17,12 @@ pipe = pipeline(
 
 outputs = pipe(
     "audio.mp3",
-    chunk_length_s=30,
-    batch_size=24,
+    chunk_length_s=10,
+    batch_size=48,
     return_timestamps=True,
 )
 
 print(outputs['text'])
-
 '''
 model_size = "large-v3-turbo"
 

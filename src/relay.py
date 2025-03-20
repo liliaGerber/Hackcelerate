@@ -111,8 +111,8 @@ def transcribe_whisper(audio_recording):
         model_kwargs={"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {"attn_implementation": "sdpa"},
     )
     outputs = pipe(
-        audio_file,
-        chunk_length_s=30,
+        audio_recording,
+        chunk_length_s=10,
         batch_size=24,
         return_timestamps=True,
     )
