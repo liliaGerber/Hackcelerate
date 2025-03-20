@@ -403,6 +403,11 @@ def close_session(chat_session_id, session_id):
         # Setting a new speaking rate
         engine.setProperty('rate', 200)
 
+        # Getting the current volume level
+        volume = engine.getProperty('volume')
+        # Setting a new volume level
+        engine.setProperty('volume', 0.8)  # Max volume
+
         # Selecting a voice (0 for male, 1 for female, etc.)
         voices = engine.getProperty('voices')
         engine.setProperty('voice', voices[1].id)
