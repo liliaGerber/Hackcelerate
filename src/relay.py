@@ -91,9 +91,6 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Session = sessionmaker(bind=engine)
 db_session = Session()
 nlp = spacy.load("en_core_web_sm")
-current_speaker = ""
-preferences = None
-
 
 class User(Base):
     __tablename__ = "user"
@@ -117,6 +114,9 @@ face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False, max_num_faces=5, refi
 
 face_recognizer = FaceAnalysis(providers=["CPUExecutionProvider"])
 face_recognizer.prepare(ctx_id=0, det_size=(640, 640))
+
+current_speaker = None
+preferences = None
 
 # Load known faces from the database (images stored in "Data" folder inside the same directory)
 known_faces = {}
@@ -160,6 +160,8 @@ def get_face_identity(face_embedding, threshold=0.6):
 
 # ----------------------- Face Recognition Loop (Active Speaker Logic) -----------------------
 def face_recognition_loop():
+    global current_speaker
+    global preferences
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FPS, 30)
 
@@ -167,7 +169,7 @@ def face_recognition_loop():
         print("[ERROR] Camera not accessible.")
         return
 
-    while True:
+    while current_speaker is None:
         ret, frame = cap.read()
         if not ret:
             break
@@ -332,6 +334,7 @@ def upload_audio_chunk(chat_session_id, session_id):
 
 @app.route("/chats/<chat_session_id>/sessions/<session_id>", methods=["DELETE"])
 def close_session(chat_session_id, session_id):
+    global current_speaker
     print(">>> call close_session")
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
@@ -390,8 +393,8 @@ def close_session(chat_session_id, session_id):
                 "Answer the following asked by user. Max 500 characters output."
                 + text +
                 "Use information of the user for preferences from"
-                + str(df.to_string()) +
-                + "User preferences" + str(preferences)
+                + str(df.to_string())
+                + "User preferences" + preferences
         )
         stream = chat(
             model="gemma3:1b",
