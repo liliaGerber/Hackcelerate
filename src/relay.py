@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import pickle
+import random
 import re
 import sqlite3
 import threading
@@ -277,8 +278,12 @@ def predict_personality(text: str) -> list[np.int32]:
 
 def fetch_user_data():
     # Fetch User's preferences data based on identifcation
-    q = db_session.query(User).filter_by(name=current_speaker)
-    return q.first()
+    q = db_session.query(User).filter_by(name=current_speaker).first()
+    if q: 
+        print("Preferences: ", json.loads(q.preferences))
+        return json.loads(q.preferences)
+    else:
+        return "No preferences for this user"
 
 # ----------------------- Flask Endpoints -----------------------
 
@@ -373,10 +378,15 @@ def close_session(chat_session_id, session_id):
         voices = engine.getProperty('voices')
         engine.setProperty('voice', voices[1].id)
 
+        GREETINGS = [
+            "It is really nice to see you again. Let me think for a moment.",
+            "Oh, thats an intersting one. Give me some time to process",
+            "I love that question! Let me consider...",
+        ]
         # Add your own preliminary prompt
         if current_speaker is not None:
-            engine.say("Hello "+str(current_speaker)+". "
-            "It is really nice to see you again. Just give me a moment to process that")
+            engine.say("Hello "+str(current_speaker)+". "+
+            random.choice(GREETINGS))
         else:
             engine.say("Sorry I couldn't recognize you. How are you doing? Just give me a moment to process that.")
         engine.runAndWait()
@@ -386,10 +396,11 @@ def close_session(chat_session_id, session_id):
         predictions = predict_personality(text)
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
+        print("Preferences: ", preferences)
         message_content = (
-                "Answer the following in a maximum of 500 characters output:"
+                "Answer the following in a maximum of 800 characters output:"
                 + text
-                + ". Use information of the user's personality:"
+                + ".Anwer the users question. Use information of the user's personality:"
                 + str(df.to_string())
                 + "If available, you can also use the user's preference to customize the answer. The preferences are listed: "
                 + "User preferences" + str(preferences)
