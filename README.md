@@ -1,4 +1,8 @@
 
+### To Do
+- Install PyTorch 2.2.0
+- `pip install faster-whisper`
+
 <h1 align="center">
   <br>
     <br>
@@ -54,10 +58,10 @@ Requirements: Python3.12 with pip and pipx installed, an IDE, for example Visual
 $ pipx install poetry
 
 # Install dependencies
-$ poetry install
+$ poetry install --no-root
 
-# Launch virtual environment
-$ poetry shell
+# Create .env file with API keys (based on .env-example)
+$ touch .env
 
 # Run the app
 $ python ./src/relay.py
