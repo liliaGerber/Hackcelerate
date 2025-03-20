@@ -104,6 +104,20 @@ def transcribe_whisper(audio_recording):
     return transcription
 
 
+# def transcribe_preview(session):
+#     if session["audio_buffer"] is not None:
+#         text = transcribe_whisper(session["audio_buffer"])
+#         # send transcription
+#         ws = session.get("websocket")
+#         if ws:
+#             message = {
+#                 "event": "recognizing",
+#                 "text": text,
+#                 "language": session["language"]
+#             }
+#             ws.send(json.dumps(message))
+
+
 def predict_personality(text):
     """Predict personality traits from text using pre-loaded classifiers and vectorizers.
     Returns a list: [EXT, NEU, AGR, CON, OPN].
@@ -164,7 +178,7 @@ def close_session(chat_session_id, session_id):
 
     session = sessions[session_id]
     if session["audio_buffer"] is not None:
-        # Transcribe audio and predict personality traits
+        # TODO preprocess audio/text, extract and save speaker identification
         transcription = transcribe_whisper(session["audio_buffer"])
         predictions = predict_personality(transcription)
         print("Predicted personality traits:", predictions)
