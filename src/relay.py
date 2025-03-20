@@ -1,6 +1,8 @@
 import io
 import json
 import uuid
+import sqlite3
+import numpy as np
 
 import torch
 from faster_whisper import WhisperModel
@@ -8,6 +10,10 @@ from flasgger import Swagger
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sock import Sock
+from sentence_transformers import SentenceTransformer
+
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+DB_PATH = "memories.sqlite"
 
 app = Flask(__name__)
 sock = Sock(app)
@@ -15,6 +21,37 @@ cors = CORS(app)
 swagger = Swagger(app)
 
 sessions = {}
+
+
+def init_db():
+    """Initialize the SQLite database and create the memories table if it doesn't exist."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_session_id TEXT,
+            text TEXT,
+            embedding TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+
+def get_embedding(text):
+    # The model returns a numpy array; convert it to list so it can be stored as JSON.
+    embedding = embedding_model.encode(text)
+    return embedding.tolist()
+
+
+def cosine_similarity(vec1, vec2):
+    """Compute cosine similarity between two vectors."""
+    vec1 = np.array(vec1)
+    vec2 = np.array(vec2)
+    if np.linalg.norm(vec1) == 0 or np.linalg.norm(vec2) == 0:
+        return 0.0
+    return float(np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2)))
 
 
 def transcribe_whisper(audio_recording):
@@ -158,7 +195,7 @@ def upload_audio_chunk(chat_session_id, session_id):
     audio_data = request.get_data()  # raw binary data from the POST body
 
     if sessions[session_id]["audio_buffer"] is not None:
-        sessions[session_id]["audio_buffer"] = sessions[session_id]["audio_buffer"] + audio_data
+        sessions[session_id]["audio_buffer"] += audio_data
     else:
         sessions[session_id]["audio_buffer"] = audio_data
 
@@ -268,8 +305,7 @@ def speech_socket(ws, chat_session_id, session_id):
 
 @app.route("/chats/<chat_session_id>/set-memories", methods=["POST"])
 def set_memories(chat_session_id):
-    """Set memories for a specific chat session.
-
+    """Set memories for a specific chat session by storing chat messages with embeddings.
     ---
     tags:
       - Memories
@@ -296,7 +332,7 @@ def set_memories(chat_session_id):
               description: List of chat messages in the session.
     responses:
       200:
-        description: Memory set successfully.
+        description: Memories stored successfully.
         schema:
           type: object
           properties:
@@ -306,18 +342,37 @@ def set_memories(chat_session_id):
       400:
         description: Invalid request data.
     """
-    chat_history = request.get_json()
+    print(">>> set-memories called")
+    data = request.get_json()
+    if not data or "chat_history" not in data:
+        return jsonify({"error": "Invalid data, chat_history missing"}), 400
 
-    # TODO preprocess data (chat history & system message)
+    chat_history = data["chat_history"]
 
-    print(f"{chat_session_id} extracting memories for conversation a:{chat_history[-1]['text']}")
+    # Preprocess and store each chat message with its embedding.
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
 
+    for message in chat_history:
+        text = message.get("text", "")
+        if text.strip() == "":
+            continue
+        embedding = get_embedding(text)
+        # Store embedding as JSON string
+        embedding_str = json.dumps(embedding)
+        c.execute("INSERT INTO memories (chat_session_id, text, embedding) VALUES (?, ?, ?)",
+                  (chat_session_id, text, embedding_str))
+    conn.commit()
+    conn.close()
+
+    print(f"{chat_session_id}: Stored {len(chat_history)} memories.")
     return jsonify({"success": "1"})
 
 
 @app.route("/chats/<chat_session_id>/get-memories", methods=["GET"])
 def get_memories(chat_session_id):
-    """Retrieve stored memories for a specific chat session.
+    """Retrieve stored memories for a specific chat session using vector similarity.
+    Optionally, a 'query' parameter can be passed to retrieve the most relevant memories.
     ---
     tags:
       - Memories
@@ -327,6 +382,11 @@ def get_memories(chat_session_id):
         type: string
         required: true
         description: The unique identifier of the chat session.
+      - name: query
+        in: query
+        type: string
+        required: false
+        description: Optional query text to retrieve relevant memories.
     responses:
       200:
         description: Successfully retrieved memories for the chat session.
@@ -334,19 +394,49 @@ def get_memories(chat_session_id):
           type: object
           properties:
             memories:
-              type: string
-              description: The stored memories for the chat session.
+              type: array
+              items:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  similarity:
+                    type: number
       400:
         description: Invalid chat session ID.
       404:
         description: Chat session not found.
     """
-    print(f"{chat_session_id}: replacing memories...")
+    print(">>> get-memories called")
+    query_text = request.args.get("query", None)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT text, embedding FROM memories WHERE chat_session_id = ?", (chat_session_id,))
+    rows = c.fetchall()
+    conn.close()
 
-    # TODO load relevant memories from your database. Example return value:
-    return jsonify({"memories": "The guest typically orders menu 1 and a glass of sparkling water."})
+    if not rows:
+        return jsonify({"memories": []})
+
+    memories = []
+    if query_text:
+        # Compute embedding for the query text
+        query_embedding = get_embedding(query_text)
+        # Calculate cosine similarity with each memory
+        for text, emb_str in rows:
+            emb = json.loads(emb_str)
+            similarity = cosine_similarity(query_embedding, emb)
+            memories.append({"text": text, "similarity": similarity})
+        # Sort memories by similarity (descending) and return top 3
+        memories = sorted(memories, key=lambda x: x["similarity"], reverse=True)[:3]
+    else:
+        # If no query is provided, return all memories without similarity score.
+        memories = [{"text": row[0]} for row in rows]
+
+    print(f"{chat_session_id}: Retrieved {len(memories)} memories.")
+    return jsonify({"memories": memories})
 
 
 if __name__ == "__main__":
-    # In production, you would use a real WSGI server like gunicorn/uwsgi
+    init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)

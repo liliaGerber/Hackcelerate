@@ -16,6 +16,7 @@ flasgger = "^0.9.7.1"
 openai = "^1.65.4"
 python-dotenv = "^1.0.1"
 torch = "^2.6.0"
+sentence-transformers = "^3.4.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"
