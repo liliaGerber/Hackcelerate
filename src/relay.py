@@ -102,13 +102,8 @@ class User(Base):
     extraversion = Column(Numeric, nullable=True)
     agreeableness = Column(Numeric, nullable=True)
     neuroticism = Column(Numeric, nullable=True)
-    food_preference = Column(Text, nullable=True)
-    drink_preference = Column(Text, nullable=True)
-    diet = Column(String, nullable=True)
     name = Column(String, nullable=True)
     nickname = Column(String, nullable=True)
-    allergies = Column(String, nullable=True)
-    hobbies = Column(Text, nullable=True)
     image = Column(String, nullable=True)
     preferences = Column(Text)
 
@@ -209,11 +204,10 @@ def face_recognition_loop():
                             if detected_identity is not None:
                                 current_speaker = detected_identity
                                 print("Detected identity:", current_speaker)
+                                fetch_user_data()
                                 break
     cap.release()
 
-face_thread = threading.Thread(target=face_recognition_loop, daemon=True)
-face_thread.start()
 # ----------------------- Additional Utility Functions -----------------------
 def get_embedding(text):
     embedding = embedding_model.encode(text)
@@ -279,6 +273,11 @@ def predict_personality(text: str) -> list[np.int32]:
     opn = cOPN.predict(text_vector_31)
     return [ext[0], neu[0], agr[0], con[0], opn[0]]
 
+def fetch_user_data():
+    # TODO 
+    print("TO DO ")
+
+
 
 # ----------------------- Flask Endpoints -----------------------
 
@@ -297,6 +296,8 @@ def websocket(ws):
 
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
+    face_thread = threading.Thread(target=face_recognition_loop, daemon=True)
+    face_thread.start()
     session_id = str(uuid.uuid4())
     body = request.get_json()
     if "language" not in body:
