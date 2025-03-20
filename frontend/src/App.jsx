@@ -8,7 +8,8 @@ function App() {
         AGR: 0,
         OPN: 0,
         CON: 0,
-        name: ''
+        name: '',
+        text: ''
     });
 
     useEffect(() => {
@@ -24,6 +25,7 @@ function App() {
                 OPN: newData[3],
                 CON: newData[4],
                 name: newData[5],
+                text: newData[6]
             });
         };
 
@@ -34,6 +36,7 @@ function App() {
 
     return <div>
         <h2>{data.name}</h2>
+        <h4>{data.text}</h4>
         <RadarChart data={{
             EXT: data.EXT,
             NEU: data.NEU,

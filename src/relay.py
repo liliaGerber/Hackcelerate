@@ -10,14 +10,12 @@ import numpy as np
 import pandas as pd
 import simple_websocket
 import torch
-from faster_whisper import WhisperModel
 from flasgger import Swagger
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sock import Sock
 from ollama import chat
 from sentence_transformers import SentenceTransformer
-import torch
 from transformers import pipeline
 from transformers.utils import is_flash_attn_2_available
 
@@ -101,14 +99,17 @@ def transcribe_whisper(audio_recording: bytes):
         device = "cpu"  # Use CPU for MPS devices as needed
     else:
         device = "cpu"
-    
-    #Insanely Faster Whisper Speech to Text
+
+    # Insanely Faster Whisper Speech to Text
     pipe = pipeline(
         "automatic-speech-recognition",
-        model="openai/whisper-"+str(model_size), # select checkpoint from https://huggingface.co/openai/whisper-large-v3#model-details
+        model="openai/whisper-"
+        + str(model_size),  # select checkpoint from https://huggingface.co/openai/whisper-large-v3#model-details
         torch_dtype=torch.float16,
-        device=device, # or mps for Mac devices
-        model_kwargs={"attn_implementation": "flash_attention_2"} if is_flash_attn_2_available() else {"attn_implementation": "sdpa"},
+        device=device,  # or mps for Mac devices
+        model_kwargs={"attn_implementation": "flash_attention_2"}
+        if is_flash_attn_2_available()
+        else {"attn_implementation": "sdpa"},
     )
     outputs = pipe(
         audio_recording,
@@ -116,13 +117,13 @@ def transcribe_whisper(audio_recording: bytes):
         batch_size=24,
         return_timestamps=False,
     )
-    transcription = outputs['text']
+    transcription = outputs["text"]
 
     # Faster Whisper Speech to Text
-    #model = WhisperModel(model_size, device=device, compute_type="int8")
-    #segments, info = model.transcribe(audio_file, beam_size=5)
-    #segments = list(segments)
-    #transcription = [segment.text for segment in segments]
+    # model = WhisperModel(model_size, device=device, compute_type="int8")
+    # segments, info = model.transcribe(audio_file, beam_size=5)
+    # segments = list(segments)
+    # transcription = [segment.text for segment in segments]
 
     print(f"Transcription segments: {transcription}")
     return transcription
@@ -162,6 +163,7 @@ def predict_personality(text: str) -> list[np.int32]:
 
 @sock.route("/ws")
 def websocket(ws):
+    print(">>> call ws")
     clients.add(ws)
     try:
         while True:
@@ -175,6 +177,7 @@ def websocket(ws):
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
     """Open a new voice input session and start continuous recognition."""
+    print(">>> call open_session")
     session_id = str(uuid.uuid4())
     body = request.get_json()
     if "language" not in body:
@@ -192,6 +195,7 @@ def open_session(chat_session_id):
 @app.route("/chats/<chat_session_id>/sessions/<session_id>/wav", methods=["POST"])
 def upload_audio_chunk(chat_session_id, session_id):
     """Upload an audio chunk and append to the session's buffer."""
+    print(">>> call upload_audio_chunk")
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
 
@@ -209,6 +213,7 @@ def upload_audio_chunk(chat_session_id, session_id):
 @app.route("/chats/<chat_session_id>/sessions/<session_id>", methods=["DELETE"])
 def close_session(chat_session_id, session_id):
     """Close the session, process the audio and send a response based on personality traits."""
+    print(">>> call close_session")
     if session_id not in sessions:
         return jsonify({"error": "Session not found"}), 404
 
@@ -216,7 +221,7 @@ def close_session(chat_session_id, session_id):
     if session["audio_buffer"] is not None:
         # TODO preprocess audio/text, extract and save speaker identification
         transcription = transcribe_whisper(session["audio_buffer"])
-        text = str(*transcription) if isinstance(transcription, list) else str(transcription)
+        text = (str(*transcription) if isinstance(transcription, list) else str(transcription)).strip()
         predictions = predict_personality(text)
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame(
@@ -225,15 +230,6 @@ def close_session(chat_session_id, session_id):
                 "theta": ["EXT", "NEU", "AGR", "CON", "OPN"],
             }
         )
-
-        for client in clients:
-            try:
-                data: list[Any] = [prediction.item() for prediction in predictions]
-                data.append("John")  # TODO: hardcoded customer name for now
-                client.send(json.dumps(data))
-            except Exception as e:
-                print(e)
-                pass  # Ignore errors if client disconnects
 
         # Generate output stream from external chat model
         message_content = (
@@ -261,11 +257,21 @@ def close_session(chat_session_id, session_id):
             message = {
                 "event": "recognized",
                 "text": text,
-                "personality_traits": df.to_dict(),
-                "response_given": response_content,
                 "language": session["language"],
             }
             ws.send(json.dumps(message))
+
+        # TODO: Update user profile + send data to frontend2
+        for client in clients:
+            try:
+                data: list[Any] = [prediction.item() for prediction in predictions]
+                data.append("John")  # TODO: hardcoded customer name for now
+                data.append(response_content)
+                data.append(text)
+                client.send(json.dumps(data))
+            except Exception as e:
+                print(e)
+                pass  # Ignore errors if client disconnects
 
     sessions.pop(session_id, None)
     return jsonify({"status": "session_closed"})
@@ -276,6 +282,7 @@ def speech_socket(ws, chat_session_id, session_id):
     """WebSocket endpoint for clients to receive STT results.
     Maintains connection until the client disconnects.
     """
+    print(">>> call speech_socket")
     if session_id not in sessions:
         ws.send(json.dumps({"error": "Session not found"}))
         return
@@ -291,11 +298,13 @@ def speech_socket(ws, chat_session_id, session_id):
 @app.route("/chats/<chat_session_id>/set-memories", methods=["POST"])
 def set_memories(chat_session_id):
     """Store chat messages with embeddings as memories for a given chat session."""
+    print(">>> call set_memories")
     data = request.get_json()
     if not data or "chat_history" not in data:
         return jsonify({"error": "Invalid data, chat_history missing"}), 400
 
     chat_history = data["chat_history"]
+    print("chat_history", chat_history)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         for message in chat_history:
@@ -318,7 +327,7 @@ def get_memories(chat_session_id):
     """Retrieve stored memories for a specific chat session.
     Optionally filter memories based on a query parameter using cosine similarity.
     """
-    print("it works")
+    print(">>> call get_memories")
     query_text = request.args.get("query", None)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
@@ -326,7 +335,7 @@ def get_memories(chat_session_id):
         rows = c.fetchall()
 
     if not rows:
-        return jsonify({"memories": []})
+        return jsonify({"memories": "<empty>"})
 
     memories = []
     if query_text:
@@ -340,7 +349,7 @@ def get_memories(chat_session_id):
         memories = [{"text": row[0]} for row in rows]
 
     print(f"{chat_session_id}: Retrieved {len(memories)} memories.")
-    return jsonify({"memories": memories})
+    return jsonify({"memories": "".join([m["text"] for m in memories])})
 
 
 # ----------------------- Application Startup -----------------------
