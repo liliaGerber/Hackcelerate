@@ -111,8 +111,7 @@ def predict_personality(text):
     AGR = cAGR.predict(text_vector_31)
     CON = cCON.predict(text_vector_31)
     OPN = cOPN.predict(text_vector_31)
-    return [EXT[0], NEU[0], AGR[0], CON[0], OPN[0]]
-
+    return [EXT[0], NEU[0], AGR[0], CON[0], OPN[0]]   
 
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
@@ -279,6 +278,18 @@ def close_session(chat_session_id, session_id):
         print("predicted personality:", predictions)
         df = pd.DataFrame(dict(r=predictions, theta=["EXT", "NEU", "AGR", "CON", "OPN"]))
 
+        #Generate Output Stream using Gemma3:1b
+        stream = chat(
+          model='gemma3:1b',
+          messages=[{'role': 'user', 'content': 'Answer this asked by user'
+          +str(text)+
+          'Give reply based on personality traits without mentioning about it in response'
+          +str(df.to_string())}],
+          stream=True,)
+
+        for chunk in stream:
+          print(chunk['message']['content'], end='', flush=True)
+
         # send transcription
         ws = sessions[session_id].get("websocket")
         if ws:
@@ -286,6 +297,7 @@ def close_session(chat_session_id, session_id):
                 "event": "recognized",
                 "text": text,
                 "personality_traits": df,
+                "response_given": str(chunk['message']['content'] for chunk in stream),
                 "language": sessions[session_id]["language"],
             }
             ws.send(json.dumps(message))
