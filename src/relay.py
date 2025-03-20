@@ -114,7 +114,7 @@ def transcribe_whisper(audio_recording: bytes):
         audio_recording,
         chunk_length_s=10,
         batch_size=24,
-        return_timestamps=True,
+        return_timestamps=False,
     )
     transcription = outputs['text']
 
