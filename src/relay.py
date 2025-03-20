@@ -1,11 +1,21 @@
 import io
 import json
+import os
 import pickle
 import re
 import sqlite3
+import threading
+import time
 import uuid
 
+import cv2
+import mediapipe as mp
 import numpy as np
+import simple_websocket
+from insightface.app import FaceAnalysis
+from sqlalchemy import create_engine, Column, Integer, String, Numeric, Text
+from sqlalchemy.orm import sessionmaker, declarative_base
+
 import pandas as pd
 import torch
 from faster_whisper import WhisperModel
@@ -17,6 +27,7 @@ from ollama import chat
 from sentence_transformers import SentenceTransformer
 from transformers import pipeline
 from transformers.utils import is_flash_attn_2_available
+cv2.ocl.setUseOpenCL(True)
 
 # Flask app and extensions
 app = Flask(__name__)
@@ -27,7 +38,7 @@ swagger = Swagger(app)
 # Global session store and constants
 sessions = {}
 clients: set[simple_websocket.ws.Server] = set()
-DB_PATH = "memories.sqlite"
+DB_PATH = os.path.join(os.path.dirname(__file__), "memories.sqlite")
 
 
 # Load models and vectorizers using context managers
@@ -65,9 +76,181 @@ def init_db():
         """)
         conn.commit()
 
+# ----------------------- Database Setup for Facial Recognition -----------------------
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE_PATH = os.path.join(BASE_DIR, "memories.sqlite")
+DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+Base = declarative_base()
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+Session = sessionmaker(bind=engine)
+db_session = Session()
+
+class User(Base):
+    __tablename__ = "user"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    openness = Column(Numeric, nullable=True)
+    conscientiousness = Column(Numeric, nullable=True)
+    extraversion = Column(Numeric, nullable=True)
+    agreeableness = Column(Numeric, nullable=True)
+    neuroticism = Column(Numeric, nullable=True)
+    food_preference = Column(Text, nullable=True)
+    drink_preference = Column(Text, nullable=True)
+    diet = Column(String, nullable=True)
+    name = Column(String, nullable=True)
+    nickname = Column(String, nullable=True)
+    allergies = Column(String, nullable=True)
+    hobbies = Column(Text, nullable=True)
+    image = Column(String, nullable=True)
+
+Base.metadata.create_all(engine)
+
+# ----------------------- Facial Recognition Initialization -----------------------
+
+# Mediapipe FaceMesh for landmark detection
+mp_face_mesh = mp.solutions.face_mesh
+face_mesh = mp_face_mesh.FaceMesh(static_image_mode=False,
+                                  max_num_faces=5,
+                                  refine_landmarks=True)
+
+# InsightFace for face recognition
+face_recognizer = FaceAnalysis(providers=["CPUExecutionProvider"])
+face_recognizer.prepare(ctx_id=0, det_size=(640, 640))
+
+# Load known faces from database
+known_faces = {}
+users = db_session.query(User).all()
+for user in users:
+    if user.image:
+        img_path = os.path.join(os.path.dirname(__file__), "Data", user.image)
+        if os.path.exists(img_path):
+            print(f"[INFO] Loading image: {img_path}")
+            img = cv2.imread(img_path)
+            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            faces = face_recognizer.get(img_rgb)
+            if faces:
+                known_faces[user.name] = faces[0].normed_embedding  # Assumes embedding is normalized
+                print(f"[INFO] Face detected for {user.name}")
+            else:
+                print(f"[WARNING] No face detected in image: {img_path}.")
+        else:
+            print(f"[WARNING] Image path does not exist: {img_path}.")
+
+print("[INFO] known_faces: ", known_faces)
+# Parameters for lip movement / speaking detection
+previous_lip_distance = {}
+speaking_status = {}
+last_speaking_time = {}
+lip_movement_threshold = 0.01
+silent_threshold = 1.5
+
+def calculate_lip_distance(landmarks):
+    """Calculate the vertical distance between two key lip landmarks."""
+    return abs(landmarks[13].y - landmarks[14].y)
+
+def get_face_identity(face_embedding, threshold=0.6):
+    """Return the identity of the face if similarity exceeds threshold."""
+    if not known_faces:
+        return None
+    similarities = {name: np.dot(face_embedding, embedding) for name, embedding in known_faces.items()}
+    best_match = max(similarities, key=similarities.get)
+    if similarities[best_match] >= threshold:
+        return best_match
+    return None
 
 # ----------------------- Utility Functions -----------------------
 
+def face_recognition_loop(stop_event):
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FPS, 30)
+    if not cap.isOpened():
+        print("[ERROR] Camera not accessible.")
+        return
+
+    prev_time = time.time()
+    while not stop_event.is_set():
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Resize frame for faster face mesh detection
+        scale_factor = 0.5
+        small_frame = cv2.resize(frame, (0, 0), fx=scale_factor, fy=scale_factor)
+        rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+
+        # Full-resolution face recognition
+        face_rec_results = face_recognizer.get(frame)
+        # Run face mesh on the smaller frame
+        results = face_mesh.process(rgb_small_frame)
+
+        detected_faces = {}
+        if face_rec_results:
+            for face in face_rec_results:
+                identity = get_face_identity(face.normed_embedding) or f"Person_{len(known_faces) + 1}"
+                best_match_id = None
+                min_distance = float('inf')
+                if results.multi_face_landmarks:
+                    for face_id, face_landmarks in enumerate(results.multi_face_landmarks):
+                        nose = face_landmarks.landmark[1]  # nose tip as reference
+                        landmark_center = np.array([
+                            nose.x * frame.shape[1] * scale_factor,
+                            nose.y * frame.shape[0] * scale_factor
+                        ])
+                        face_center = np.array([
+                            face.bbox[0] + face.bbox[2] / 2,
+                            face.bbox[1] + face.bbox[3] / 2
+                        ])
+                        distance = np.linalg.norm(face_center - landmark_center)
+                        if distance < min_distance:
+                            min_distance = distance
+                            best_match_id = face_id
+                if best_match_id is not None:
+                    detected_faces[best_match_id] = identity
+
+        active_speakers = []
+        if results.multi_face_landmarks:
+            for face_id, face_landmarks in enumerate(results.multi_face_landmarks):
+                lip_distance = calculate_lip_distance(face_landmarks.landmark)
+                if face_id not in previous_lip_distance:
+                    previous_lip_distance[face_id] = lip_distance
+                    speaking_status[face_id] = False
+                    last_speaking_time[face_id] = time.time()
+
+                movement = abs(lip_distance - previous_lip_distance[face_id])
+                is_speaking = movement > lip_movement_threshold
+
+                if is_speaking and not speaking_status[face_id]:
+                    active_speakers.append(detected_faces.get(face_id, "Unknown"))
+                    speaking_status[face_id] = True
+                    last_speaking_time[face_id] = time.time()
+                elif not is_speaking and speaking_status[face_id]:
+                    if time.time() - last_speaking_time[face_id] > silent_threshold:
+                        speaking_status[face_id] = False
+
+                previous_lip_distance[face_id] = lip_distance
+
+        if active_speakers:
+            print("Currently Speaking:", ', '.join(active_speakers))
+        current_time = time.time()
+        fps = 1 / (current_time - prev_time)
+        # print(f"FPS: {fps:.2f}")
+        prev_time = current_time
+
+    cap.release()
+
+# ----------------------- Model Loading for Transcription & Personality -----------------------
+
+def load_pickle_model(path):
+    with open(path, "rb") as f:
+        return pickle.load(f)
+
+cEXT = load_pickle_model("data/models/cEXT.p")
+cNEU = load_pickle_model("data/models/cNEU.p")
+cAGR = load_pickle_model("data/models/cAGR.p")
+cCON = load_pickle_model("data/models/cCON.p")
+cOPN = load_pickle_model("data/models/cOPN.p")
+vectorizer_31 = load_pickle_model("data/models/vectorizer_31.p")
+vectorizer_30 = load_pickle_model("data/models/vectorizer_30.p")
 
 def get_embedding(text):
     """Compute embedding for the given text using SentenceTransformer model."""
