@@ -175,5 +175,4 @@ cython_debug/
 
 .DS_STORE
 .idea/
-src/memories.sqlite
 
