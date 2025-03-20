@@ -12,7 +12,7 @@ model = WhisperModel(model_size, device="cuda", compute_type="float16")
 
 segments, info = model.transcribe("audio.mp3", beam_size=5)
 
-#print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
+# print("Detected language '%s' with probability %f" % (info.language, info.language_probability))
 
 transcription = " ".join(segment.text.strip() for segment in segments)
 
