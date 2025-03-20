@@ -13,7 +13,6 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import pandas as pd
-import pyttsx3
 import simple_websocket
 import torch
 from flasgger import Swagger
@@ -27,6 +26,7 @@ from sqlalchemy import Column, Integer, Numeric, String, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from transformers import pipeline
 from transformers.utils import is_flash_attn_2_available
+import pyttsx3
 
 cv2.ocl.setUseOpenCL(True)
 
@@ -57,6 +57,7 @@ vectorizer_31 = load_pickle_model("data/models/vectorizer_31.p")
 vectorizer_30 = load_pickle_model("data/models/vectorizer_30.p")
 
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
 
 # ----------------------- Database Setup -----------------------
 def init_db():
@@ -101,18 +102,6 @@ class User(Base):
     allergies = Column(String, nullable=True)
     hobbies = Column(Text, nullable=True)
     image = Column(String, nullable=True)
-
-
-class Personality(Base):
-    __tablename__ = "personality"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Numeric, unique=True)
-    num_datapoints = Column(Integer)
-    ext_mean = Column(Numeric)
-    neu_mean = Column(Numeric)
-    agr_mean = Column(Numeric)
-    con_mean = Column(Numeric)
-    opn_mean = Column(Numeric)
 
 
 Base.metadata.create_all(engine)
@@ -305,13 +294,13 @@ def predict_personality(text: str) -> list[np.int32]:
     agr = cAGR.predict(text_vector_31)
     con = cCON.predict(text_vector_31)
     opn = cOPN.predict(text_vector_31)
-    return [ext[0].item(), neu[0].item(), agr[0].item(), con[0].item(), opn[0].item()]
+    return [ext[0], neu[0], agr[0], con[0], opn[0]]
 
 
 # ----------------------- Flask Endpoints -----------------------
 
 
-@sock.route("/ws/personality-visualizer")
+@sock.route("/ws")
 def websocket(ws):
     print(">>> call ws")
     clients.add(ws)
@@ -368,7 +357,9 @@ def close_session(chat_session_id, session_id):
 
     session = sessions[session_id]
     if session["audio_buffer"] is not None:
-        stt_model = "large-v3-turbo"
+        # TODO preprocess audio/text, extract and save speaker identification
+
+        model_size = "large-v3-turbo"
         if torch.cuda.is_available():
             device = "cuda"
         elif torch.backends.mps.is_available():
@@ -376,11 +367,10 @@ def close_session(chat_session_id, session_id):
         else:
             device = "cpu"
 
-        # Introduction audio to stall for time
         # Insanely Faster Whisper Speech to Text
         pipe = pipeline(
             "automatic-speech-recognition",
-            model="openai/whisper-" + str(stt_model),
+            model="openai/whisper-" + str(model_size),
             torch_dtype=torch.float16,
             device=device,
             model_kwargs={"attn_implementation": "flash_attention_2"}
@@ -388,13 +378,11 @@ def close_session(chat_session_id, session_id):
             else {"attn_implementation": "sdpa"},
         )
 
-        # Begin transcription
         transcription = transcribe_whisper(session["audio_buffer"], pipe)
         text = (str(*transcription) if isinstance(transcription, list) else str(transcription)).strip()
-        predictions = predict_personality(text)  # TODO: Do this afterwards?
+        predictions = predict_personality(text)
+        print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
-
-        # Prompt for reply
         message_content = (
             "Answer this asked by user (No special characters)"
             + text
@@ -413,61 +401,24 @@ def close_session(chat_session_id, session_id):
             print(chunk_text, end="", flush=True)
             response_content += chunk_text
 
-        # Say the response
-        speech_engine = pyttsx3.init()
-        speech_engine.setProperty('rate', 200)
-        speech_engine.say(response_content)
-        speech_engine.setProperty('volume', 0.8)  # Max volume
-        voices = speech_engine.getProperty('voices')
-        speech_engine.setProperty('voice', voices[1].id)
-        speech_engine.say(response_content)
-        speech_engine.runAndWait()
+        # Text to speech based on the response content
+        engine = pyttsx3.init()  # Object creation
+        # Setting a new speaking rate
+        engine.setProperty('rate', 200)
+
+        # Getting the current volume level
+        volume = engine.getProperty('volume')
+        # Setting a new volume level
+        engine.setProperty('volume', 0.8)  # Max volume
+
+        # Selecting a voice (0 for male, 1 for female, etc.)
+        voices = engine.getProperty('voices')
+        engine.setProperty('voice', voices[1].id)
+        engine.say(response_content)
+        # Run the speech engine
+        engine.runAndWait()
 
         # Send transcription and personality response via websocket if available
-        # TODO: This should happen in the background and not block the thread
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                """
-                SELECT ext_mean, neu_mean, agr_mean, con_mean, opn_mean, num_datapoints 
-                FROM personality WHERE user_id = ?
-            """,
-                ("USER_ID",),
-            )
-            row = cursor.fetchone()
-
-            if row:
-                ext_old, neu_old, agr_old, con_old, opn_old, num_datapoints = row
-                num_datapoints += 1
-                ext_mean = (ext_old * (num_datapoints - 1) + predictions[0]) / num_datapoints
-                neu_mean = (neu_old * (num_datapoints - 1) + predictions[1]) / num_datapoints
-                agr_mean = (agr_old * (num_datapoints - 1) + predictions[2]) / num_datapoints
-                con_mean = (con_old * (num_datapoints - 1) + predictions[3]) / num_datapoints
-                opn_mean = (opn_old * (num_datapoints - 1) + predictions[4]) / num_datapoints
-            else:
-                # First entry
-                num_datapoints = 1
-                ext_mean, neu_mean, agr_mean, con_mean, opn_mean = predictions
-
-            # Upsert logic
-            cursor.execute(
-                """
-                INSERT INTO personality (user_id, ext_mean, neu_mean, agr_mean, con_mean, opn_mean, num_datapoints)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET
-                    ext_mean = excluded.ext_mean,
-                    neu_mean = excluded.neu_mean,
-                    agr_mean = excluded.agr_mean,
-                    con_mean = excluded.con_mean,
-                    opn_mean = excluded.opn_mean,
-                    num_datapoints = excluded.num_datapoints
-            """,
-                ("USER_ID", ext_mean, neu_mean, agr_mean, con_mean, opn_mean, num_datapoints),
-            )
-
-            conn.commit()
-
         ws = session.get("websocket")
         if ws:
             message = {
@@ -477,14 +428,17 @@ def close_session(chat_session_id, session_id):
             }
             ws.send(json.dumps(message))
 
+        # TODO: Update user profile + send data to frontend2
         for client in clients:
             try:
-                data: list[Any] = [ext_mean, neu_mean, agr_mean, con_mean, opn_mean, "John", response_content, text]
+                data: list[Any] = [prediction.item() for prediction in predictions]
+                data.append("John")  # TODO: hardcoded customer name for now
+                data.append(response_content)
+                data.append(text)
                 client.send(json.dumps(data))
             except Exception as e:
                 print(e)
                 pass
-
     # Stop the face recognition thread
     session["face_stop_event"].set()
     session["face_thread"].join()
