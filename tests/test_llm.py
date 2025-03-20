@@ -1,7 +1,6 @@
-from ollama import chat
-import sounddevice as sd
+
 import pyttsx3
-import os
+from ollama import chat
 
 stream = chat(
     model="gemma3:1b",
@@ -18,21 +17,21 @@ stream = chat(
 )
 
 
-response_content=""
+response_content = ""
 
 for chunk in stream:
     print(chunk["message"]["content"], end="", flush=True)
     chunk_text = chunk["message"]["content"]
     response_content += chunk_text
 
-#Text to speech configuration
+# Text to speech configuration
 engine = pyttsx3.init()  # Object creation
 # Setting a new speaking rate
-engine.setProperty('rate', 200)
+engine.setProperty("rate", 200)
 
 # Selecting a voice (0 for male, 1 for female, etc.)
-voices = engine.getProperty('voices')
-engine.setProperty('voice', voices[1].id)
+voices = engine.getProperty("voices")
+engine.setProperty("voice", voices[1].id)
 
 text = str(response_content)
 print(text)
@@ -42,8 +41,8 @@ engine.say(response_content)
 engine.runAndWait()
 
 # Save to a file
-#engine.save_to_file(response_content, 'response.mp3')
-#engine.runAndWait()
+# engine.save_to_file(response_content, 'response.mp3')
+# engine.runAndWait()
 
 # Stop the engine
 engine.stop()

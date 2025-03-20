@@ -6,14 +6,14 @@ function App() {
         EXT: 0,
         NEU: 0,
         AGR: 0,
-        OPN: 0,
         CON: 0,
+        OPN: 0,
         name: '',
         text: ''
     });
 
     useEffect(() => {
-        const socket = new WebSocket("ws://localhost:5000/ws"); // Adjust to your backend URL
+        const socket = new WebSocket("ws://localhost:5000/ws/personality-visualizer"); // Adjust to your backend URL
 
         socket.onmessage = (event) => {
             console.log("Received message", event.data);
@@ -22,8 +22,8 @@ function App() {
                 EXT: newData[0],
                 NEU: newData[1],
                 AGR: newData[2],
-                OPN: newData[3],
                 CON: newData[4],
+                OPN: newData[3],
                 name: newData[5],
                 text: newData[6]
             });
@@ -41,8 +41,8 @@ function App() {
             EXT: data.EXT,
             NEU: data.NEU,
             AGR: data.AGR,
-            OPN: data.OPN,
             CON: data.CON,
+            OPN: data.OPN,
         }}/>
     </div>;
 }
