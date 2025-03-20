@@ -246,27 +246,10 @@ def cosine_similarity(vec1, vec2):
     return float(np.dot(vec1, vec2) / (norm1 * norm2))
 
 
-def transcribe_whisper(audio_recording: bytes):
+def transcribe_whisper(audio_recording: bytes, pipe):
     audio_file = io.BytesIO(audio_recording)
     audio_file.name = "audio.wav"
-    model_size = "large-v3-turbo"
-    if torch.cuda.is_available():
-        device = "cuda"
-    elif torch.backends.mps.is_available():
-        device = "mps"
-    else:
-        device = "cpu"
 
-    # Insanely Faster Whisper Speech to Text
-    pipe = pipeline(
-        "automatic-speech-recognition",
-        model="openai/whisper-" + str(model_size),
-        torch_dtype=torch.float16,
-        device=device,
-        model_kwargs={"attn_implementation": "flash_attention_2"}
-        if is_flash_attn_2_available()
-        else {"attn_implementation": "sdpa"},
-    )
     outputs = pipe(
         audio_recording,
         chunk_length_s=10,
@@ -375,7 +358,27 @@ def close_session(chat_session_id, session_id):
     session = sessions[session_id]
     if session["audio_buffer"] is not None:
         # TODO preprocess audio/text, extract and save speaker identification
-        transcription = transcribe_whisper(session["audio_buffer"])
+
+        model_size = "large-v3-turbo"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+
+        # Insanely Faster Whisper Speech to Text
+        pipe = pipeline(
+            "automatic-speech-recognition",
+            model="openai/whisper-" + str(model_size),
+            torch_dtype=torch.float16,
+            device=device,
+            model_kwargs={"attn_implementation": "flash_attention_2"}
+            if is_flash_attn_2_available()
+            else {"attn_implementation": "sdpa"},
+        )
+
+        transcription = transcribe_whisper(session["audio_buffer"], pipe)
         text = (str(*transcription) if isinstance(transcription, list) else str(transcription)).strip()
         predictions = predict_personality(text)
         print("Predicted personality traits:", predictions)
