@@ -422,7 +422,7 @@ def close_session(chat_session_id, session_id):
     session["face_thread"].join()
 
     # Reset global current speaker when the session ends
-    current_speaker = None
+    # current_speaker = None
 
     sessions.pop(session_id, None)
     return jsonify({"status": "session_closed"})
@@ -546,6 +546,7 @@ def store_memories(chat_session_id, chat_history):
         if not current_chats:
             return
 
+        print(1111111111, current_speaker)
         last_summary_row = c.execute(
             "SELECT current_summary FROM memories WHERE user_id = ? ORDER BY id DESC LIMIT 1",
             (current_speaker.id,),
@@ -602,13 +603,14 @@ def get_memories(chat_session_id):
     Optionally filter memories based on a query parameter using cosine similarity.
     """
     global current_speaker
+    print(1111111111111, current_speaker)
     query_text = request.args.get("query", None)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         c.execute("""SELECT text, entity FROM memories 
         WHERE user_id = ?
         ORDER BY id desc
-        LIMIT 3""", (current_speaker,))
+        LIMIT 3""", (current_speaker if current_speaker else 1,))
         rows = c.fetchall()
 
     if not rows:
