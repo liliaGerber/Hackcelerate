@@ -23,7 +23,6 @@ from flask_cors import CORS
 from flask_sock import Sock
 from insightface.app import FaceAnalysis
 from ollama import chat
-from sentence_transformers import SentenceTransformer
 from spacy.matcher import Matcher
 from sqlalchemy import Column, Integer, Numeric, String, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -62,27 +61,7 @@ cOPN = load_pickle_model("data/models/cOPN.p")
 vectorizer_31 = load_pickle_model("data/models/vectorizer_31.p")
 vectorizer_30 = load_pickle_model("data/models/vectorizer_30.p")
 
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-
 # ----------------------- Database Setup -----------------------
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY,
-                chat_session_id TEXT,
-                text TEXT,
-                embedding TEXT,
-                entity TEXT,
-                current_summary TEXT
-            )
-        """)
-        conn.commit()
-
-
-# ----------------------- Database Setup for Facial Recognition -----------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE_PATH = os.path.join(BASE_DIR, "memories.sqlite")
 DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
@@ -91,6 +70,7 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Session = sessionmaker(bind=engine)
 db_session = Session()
 nlp = spacy.load("en_core_web_sm")
+
 
 class User(Base):
     __tablename__ = "user"
@@ -104,6 +84,27 @@ class User(Base):
     nickname = Column(String, nullable=True)
     image = Column(String, nullable=True)
     preferences = Column(Text)
+
+
+class Personality(Base):
+    __tablename__ = "personality"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Numeric, unique=True)
+    num_datapoints = Column(Integer)
+    ext_mean = Column(Numeric)
+    neu_mean = Column(Numeric)
+    agr_mean = Column(Numeric)
+    con_mean = Column(Numeric)
+    opn_mean = Column(Numeric)
+
+
+class Memories(Base):
+    __tablename__ = "memories"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Numeric)
+    text = Column(String)
+    entity = Column(String)
+    current_summary = Column(String)
 
 
 Base.metadata.create_all(engine)
@@ -141,6 +142,7 @@ previous_lip_distance = {}
 speaking_status = {}
 last_speaking_time = {}
 silent_threshold = 1.5
+
 
 def calculate_lip_distance(landmarks):
     """Calculate the vertical distance between two key lip landmarks."""
@@ -211,20 +213,6 @@ def face_recognition_loop():
     cap.release()
 
 # ----------------------- Additional Utility Functions -----------------------
-def get_embedding(text):
-    embedding = embedding_model.encode(text)
-    return embedding.tolist()
-
-
-def cosine_similarity(vec1, vec2):
-    vec1 = np.array(vec1)
-    vec2 = np.array(vec2)
-    norm1, norm2 = np.linalg.norm(vec1), np.linalg.norm(vec2)
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-    return float(np.dot(vec1, vec2) / (norm1 * norm2))
-
-
 def transcribe_whisper(audio_recording: bytes, pipe):
     audio_file = io.BytesIO(audio_recording)
     audio_file.name = "audio.wav"
@@ -419,11 +407,10 @@ def close_session(chat_session_id, session_id):
             }
             ws.send(json.dumps(message))
 
-        # TODO: Update user profile + send data to frontend2
         for client in clients:
             try:
                 data: list[Any] = [prediction.item() for prediction in predictions]
-                data.append("John")  # TODO: hardcoded customer name for now
+                data.append(current_speaker.name)
                 data.append(response_content)
                 data.append(text)
                 client.send(json.dumps(data))
@@ -560,8 +547,8 @@ def store_memories(chat_session_id, chat_history):
             return
 
         last_summary_row = c.execute(
-            "SELECT current_summary FROM memories WHERE chat_session_id = ? ORDER BY id DESC LIMIT 1",
-            (chat_session_id,),
+            "SELECT current_summary FROM memories WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+            (current_speaker.id,),
         ).fetchone()
         last_summary = last_summary_row[0] if last_summary_row else ""
 
@@ -571,11 +558,10 @@ def store_memories(chat_session_id, chat_history):
             text = message.get("text", "").strip()
             if not text:
                 continue
-            embedding_str = json.dumps(get_embedding(text))
             c.execute(
-                "INSERT INTO memories (id, chat_session_id, text, embedding, entity, current_summary) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (message["id"], chat_session_id, text, embedding_str, message["type"], new_summary),
+                "INSERT INTO memories (id, user_id, text, entity, current_summary) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (message["id"], current_speaker.id, text, message["type"], new_summary),
             )
 
         # --- User Profile Update Section ---
@@ -615,32 +601,27 @@ def get_memories(chat_session_id):
     """Retrieve stored memories for a specific chat session.
     Optionally filter memories based on a query parameter using cosine similarity.
     """
+    global current_speaker
     query_text = request.args.get("query", None)
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
-        c.execute("SELECT text, embedding, entity FROM memories WHERE chat_session_id = ?", (chat_session_id,))
+        c.execute("""SELECT text, entity FROM memories 
+        WHERE user_id = ?
+        ORDER BY id desc
+        LIMIT 3""", (current_speaker,))
         rows = c.fetchall()
 
     if not rows:
         return jsonify({"memories": "<empty>"})
 
-    memories = []
+    memories = [f"Customer: {row[0]}" if str(row[1]) == "0" else f"Bot: {row[0]}" for row in rows]
     if query_text:
-        query_embedding = get_embedding(query_text)
-        for text, emb_str, _ in rows:
-            emb = json.loads(emb_str)
-            similarity = cosine_similarity(query_embedding, emb)
-            memories.append({"text": text, "similarity": similarity})
-        memories = sorted(memories, key=lambda x: x["similarity"], reverse=True)[:3]
-    else:
-        memories = [{"text": row[0]} for row in rows]
+        memories.append(f"Customer: {query_text}")
 
-    print(f"{chat_session_id}: Retrieved {len(memories)} memories.")
-    return jsonify({"memories": "".join([m["text"] for m in memories])})
+    return jsonify({"memories": "".join(memories)})
 
 
 # ----------------------- Application Startup -----------------------
 
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
