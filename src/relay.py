@@ -7,6 +7,7 @@ import uuid
 
 import numpy as np
 import pandas as pd
+import simple_websocket
 import torch
 from faster_whisper import WhisperModel
 from flasgger import Swagger
@@ -24,6 +25,7 @@ swagger = Swagger(app)
 
 # Global session store and constants
 sessions = {}
+clients: set[simple_websocket.ws.Server] = set()
 DB_PATH = "memories.sqlite"
 
 
@@ -118,11 +120,10 @@ def transcribe_whisper(audio_recording):
 #             ws.send(json.dumps(message))
 
 
-def predict_personality(text):
+def predict_personality(text: str) -> list[np.int32]:
     """Predict personality traits from text using pre-loaded classifiers and vectorizers.
     Returns a list: [EXT, NEU, AGR, CON, OPN].
     """
-    text = str(text)
     sentences = re.split(r"(?<=[.!?]) +", text)
     text_vector_31 = vectorizer_31.transform(sentences)
     text_vector_30 = vectorizer_30.transform(sentences)
@@ -136,6 +137,17 @@ def predict_personality(text):
 
 # ----------------------- Flask Endpoints -----------------------
 
+@sock.route('/ws')
+def websocket(ws):
+    clients.add(ws)
+    try:
+        while True:
+            message = ws.receive()
+            if message is None:
+                break
+    finally:
+        print("remove")
+        clients.remove(ws)
 
 @app.route("/chats/<chat_session_id>/sessions", methods=["POST"])
 def open_session(chat_session_id):
@@ -180,14 +192,26 @@ def close_session(chat_session_id, session_id):
     if session["audio_buffer"] is not None:
         # TODO preprocess audio/text, extract and save speaker identification
         transcription = transcribe_whisper(session["audio_buffer"])
-        predictions = predict_personality(transcription)
+        text = str(*transcription) if isinstance(transcription, list) else str(transcription)
+        predictions = predict_personality(text)
         print("Predicted personality traits:", predictions)
-        df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
+        df = pd.DataFrame({
+            "r": predictions,
+            "theta": ["EXT", "NEU", "AGR", "CON", "OPN"],
+        })
+
+        for client in clients:
+            try:
+                client.send(json.dumps([prediction.item() for prediction in predictions]))
+            except Exception as e:
+                print(e)
+                pass  # Ignore errors if client disconnects
+
 
         # Generate output stream from external chat model
         message_content = (
             "Answer this asked by user "
-            + str(transcription)
+            + text
             + " Give reply based on personality traits without mentioning about it in response "
             + str(df.to_string())
         )
@@ -208,7 +232,7 @@ def close_session(chat_session_id, session_id):
         if ws:
             message = {
                 "event": "recognized",
-                "text": transcription,
+                "text": text,
                 "personality_traits": df.to_dict(),
                 "response_given": response_content,
                 "language": session["language"],

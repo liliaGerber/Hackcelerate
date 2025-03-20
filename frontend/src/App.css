@@ -1,0 +1,24 @@
+#root {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+.app-container {
+    display: flex;
+    place-content: center;
+}
+
+.checkbox-container {
+    display: flex;
+}
+
+.checkbox-container > div {
+    cursor: pointer;
+}
+
+.left-screen-side {
+    width: var(--left-screen-width);
+    margin-right: 16px;
+    margin-left: 16px;
+}
