@@ -402,7 +402,7 @@ def close_session(chat_session_id, session_id):
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
         message_content = (
-            "Answer this asked by user (No special characters)"
+            "Answer this asked by user. Max 500 characters output."
             + text
             + " Give reply based on personality traits without mentioning about it in response "
             + str(df.to_string())
