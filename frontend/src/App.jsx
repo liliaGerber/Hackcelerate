@@ -1,13 +1,14 @@
-import { useEffect, useState } from "react";
+import {useEffect, useState} from "react";
 import RadarChart from "./components/Graph/RadarChart.jsx";
 
 function App() {
     const [data, setData] = useState({
-        EXT: 2,
-        NEU: 2,
-        AGR: 1,
-        OPN: 3,
-        CON: 4,
+        EXT: 0,
+        NEU: 0,
+        AGR: 0,
+        OPN: 0,
+        CON: 0,
+        name: ''
     });
 
     useEffect(() => {
@@ -22,6 +23,7 @@ function App() {
                 AGR: newData[2],
                 OPN: newData[3],
                 CON: newData[4],
+                name: newData[5],
             });
         };
 
@@ -30,7 +32,16 @@ function App() {
         };
     }, []);
 
-    return <RadarChart data={data} />;
+    return <div>
+        <h2>{data.name}</h2>
+        <RadarChart data={{
+            EXT: data.EXT,
+            NEU: data.NEU,
+            AGR: data.AGR,
+            OPN: data.OPN,
+            CON: data.CON,
+        }}/>
+    </div>;
 }
 
 export default App;

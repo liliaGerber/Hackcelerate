@@ -4,6 +4,7 @@ import pickle
 import re
 import sqlite3
 import uuid
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -179,7 +180,8 @@ def upload_audio_chunk(chat_session_id, session_id):
     else:
         sessions[session_id]["audio_buffer"] = audio_data
 
-    # TODO: Optionally, transcribe real-time audio chunks (see transcribe_whisper)
+    # TODO: Optionally, transcribe real-time audio chunks (see transcribe_preview)
+
     return jsonify({"status": "audio_chunk_received"})
 
 
@@ -205,7 +207,9 @@ def close_session(chat_session_id, session_id):
 
         for client in clients:
             try:
-                client.send(json.dumps([prediction.item() for prediction in predictions]))
+                data: list[Any] = [prediction.item() for prediction in predictions]
+                data.append("John")  # TODO: hardcoded customer name for now
+                client.send(json.dumps(data))
             except Exception as e:
                 print(e)
                 pass  # Ignore errors if client disconnects
