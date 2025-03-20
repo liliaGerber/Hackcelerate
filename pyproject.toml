@@ -23,6 +23,9 @@ plotly = "^6.0.1"
 pandas = "^2.2.3"
 ollama = "^0.4.7"
 faster-whisper = "^1.1.1"
+mediapipe = "^0.10.21"
+insightface = "^0.7.3"
+opencv-python = "^4.11.0.86"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.2"

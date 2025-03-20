@@ -4,12 +4,11 @@ import pickle
 import re
 import sqlite3
 import uuid
-from typing import Any
 
 import numpy as np
 import pandas as pd
-import simple_websocket
 import torch
+from faster_whisper import WhisperModel
 from flasgger import Swagger
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -303,6 +302,7 @@ def set_memories(chat_session_id):
     chat_history = request.get_json()
     is_bot = True
 
+    chat_history = data["chat_history"]
     with sqlite3.connect(DB_PATH) as conn:
         c = conn.cursor()
         for message in chat_history:
