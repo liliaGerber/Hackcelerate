@@ -276,12 +276,9 @@ def predict_personality(text: str) -> list[np.int32]:
     return [ext[0], neu[0], agr[0], con[0], opn[0]]
 
 def fetch_user_data():
-    # TODO 
-    print("TO DO ")
+    # Fetch User's preferences data based on identifcation
     q = db_session.query(User).filter_by(name=current_speaker)
     return q.first()
-
-
 
 # ----------------------- Flask Endpoints -----------------------
 
@@ -394,7 +391,7 @@ def close_session(chat_session_id, session_id):
                 + text +
                 "Use information of the user for preferences from"
                 + str(df.to_string())
-                + "User preferences" + preferences
+                + "User preferences" + str(preferences)
         )
         stream = chat(
             model="gemma3:1b",
