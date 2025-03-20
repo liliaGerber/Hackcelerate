@@ -43,7 +43,6 @@ swagger = Swagger(app)
 sessions = {}
 clients: set[simple_websocket.ws.Server] = set()
 DB_PATH = os.path.join(os.path.dirname(__file__), "memories.sqlite")
-current_speaker = None
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -92,6 +91,8 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 Session = sessionmaker(bind=engine)
 db_session = Session()
 nlp = spacy.load("en_core_web_sm")
+current_speaker = ""
+preferences = None
 
 
 class User(Base):
@@ -159,7 +160,6 @@ def get_face_identity(face_embedding, threshold=0.6):
 
 # ----------------------- Face Recognition Loop (Active Speaker Logic) -----------------------
 def face_recognition_loop():
-    global current_speaker
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FPS, 30)
 
@@ -167,7 +167,7 @@ def face_recognition_loop():
         print("[ERROR] Camera not accessible.")
         return
 
-    while current_speaker is None:
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
@@ -204,7 +204,7 @@ def face_recognition_loop():
                             if detected_identity is not None:
                                 current_speaker = detected_identity
                                 print("Detected identity:", current_speaker)
-                                fetch_user_data()
+                                preferences = fetch_user_data()
                                 break
     cap.release()
 
@@ -276,6 +276,8 @@ def predict_personality(text: str) -> list[np.int32]:
 def fetch_user_data():
     # TODO 
     print("TO DO ")
+    q = db_session.query(User).filter_by(name=current_speaker)
+    return q.first()
 
 
 
@@ -372,7 +374,11 @@ def close_session(chat_session_id, session_id):
         engine.setProperty('voice', voices[1].id)
 
         # Add your own preliminary prompt
-        engine.say("Just give me a moment to process that.")
+        if str(current_speaker) != "":
+            engine.say("Hello "+str(current_speaker)+". "
+            "It is really nice to see you again. Just give me a moment to process that")
+        else:
+            engine.say("Just give me a moment to process that.")
         engine.runAndWait()
 
         transcription = transcribe_whisper(session["audio_buffer"], pipe)
@@ -381,10 +387,11 @@ def close_session(chat_session_id, session_id):
         print("Predicted personality traits:", predictions)
         df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
         message_content = (
-                "Answer this asked by user. Max 500 characters output."
-                + text
-                + " Give reply based on personality traits without mentioning about it in response "
-                + str(df.to_string())
+                "Answer the following asked by user. Max 500 characters output."
+                + text +
+                "Use information of the user for preferences from"
+                + str(df.to_string()) +
+                + "User preferences" + str(preferences)
         )
         stream = chat(
             model="gemma3:1b",
@@ -428,7 +435,6 @@ def close_session(chat_session_id, session_id):
     session["face_thread"].join()
 
     # Reset global current speaker when the session ends
-    global current_speaker
     current_speaker = None
 
     sessions.pop(session_id, None)
