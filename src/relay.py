@@ -93,6 +93,7 @@ Session = sessionmaker(bind=engine)
 db_session = Session()
 nlp = spacy.load("en_core_web_sm")
 
+
 class User(Base):
     __tablename__ = "user"
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -142,6 +143,7 @@ previous_lip_distance = {}
 speaking_status = {}
 last_speaking_time = {}
 silent_threshold = 1.5
+
 
 def calculate_lip_distance(landmarks):
     """Calculate the vertical distance between two key lip landmarks."""
@@ -211,6 +213,7 @@ def face_recognition_loop():
                                 break
     cap.release()
 
+
 # ----------------------- Additional Utility Functions -----------------------
 def get_embedding(text):
     embedding = embedding_model.encode(text)
@@ -276,14 +279,16 @@ def predict_personality(text: str) -> list[np.int32]:
     opn = cOPN.predict(text_vector_31)
     return [ext[0], neu[0], agr[0], con[0], opn[0]]
 
+
 def fetch_user_data():
     # Fetch User's preferences data based on identifcation
     q = db_session.query(User).filter_by(name=current_speaker).first()
-    if q: 
+    if q:
         print("Preferences: ", json.loads(q.preferences))
         return json.loads(q.preferences)
     else:
         return "No preferences for this user"
+
 
 # ----------------------- Flask Endpoints -----------------------
 
@@ -334,6 +339,40 @@ def upload_audio_chunk(chat_session_id, session_id):
     return jsonify({"status": "audio_chunk_received"})
 
 
+def speak_greeting(speaker):
+    """Runs text-to-speech in a separate thread."""
+    GREETINGS = [
+        "Give me a sec to think about that.",
+        "Let me process that real quick.",
+        "That's a good one! Thinking...",
+        "Just a moment, I'm working on it.",
+        "Let me figure this out for you.",
+        "Hold on, I'll get right back to you.",
+        "One moment while I put this together.",
+    ]
+
+    if speaker:
+        text = f"Hello {speaker}. {random.choice(GREETINGS)}"
+    else:
+        text = "Sorry, I couldn't recognize you. Give me a moment to process that."
+
+    speak(text)
+
+
+def speak(text):
+    # Text to speech based on the response content
+    engine = pyttsx3.init()  # Object creation
+    engine.setProperty('rate', 190)
+    engine.setProperty('volume', 0.8)
+    engine.setProperty('voice', 'com.apple.voice.compact.en-GB.Daniel')
+
+    if engine._inLoop:
+        engine.endLoop()
+
+    engine.say(text)
+    engine.runAndWait()
+
+
 @app.route("/chats/<chat_session_id>/sessions/<session_id>", methods=["DELETE"])
 def close_session(chat_session_id, session_id):
     global current_speaker
@@ -364,38 +403,13 @@ def close_session(chat_session_id, session_id):
             else {"attn_implementation": "sdpa"},
         )
 
-        # Text to speech based on the response content
-        engine = pyttsx3.init()  # Object creation
-        # Setting a new speaking rate
-        engine.setProperty('rate', 200)
-
-        # Getting the current volume level
-        volume = engine.getProperty('volume')
-        # Setting a new volume level
-        engine.setProperty('volume', 0.8)  # Max volume
-
-        # Selecting a voice (0 for male, 1 for female, etc.)
-        voices = engine.getProperty('voices')
-        engine.setProperty('voice', voices[1].id)
-
-        GREETINGS = [
-            "It is really nice to see you again. Let me think for a moment.",
-            "Oh, thats an intersting one. Give me some time to process",
-            "I love that question! Let me consider...",
-        ]
-        # Add your own preliminary prompt
-        if current_speaker is not None:
-            engine.say("Hello "+str(current_speaker)+". "+
-            random.choice(GREETINGS))
-        else:
-            engine.say("Sorry I couldn't recognize you. How are you doing? Just give me a moment to process that.")
-        engine.runAndWait()
+        threading.Thread(target=speak_greeting, args=(current_speaker,), daemon=True).start()
 
         transcription = transcribe_whisper(session["audio_buffer"], pipe)
         text = (str(*transcription) if isinstance(transcription, list) else str(transcription)).strip()
         predictions = predict_personality(text)
         print("Predicted personality traits:", predictions)
-        df = pd.DataFrame({"r": predictions, "theta": ["EXT", "NEU", "AGR", "CON", "OPN"]})
+        df = pd.DataFrame({"r": predictions, "traits": ["EXT", "NEU", "AGR", "CON", "OPN"]})
         print("Preferences: ", preferences)
         message_content = (
                 "Answer the following in a maximum of 800 characters output:"
@@ -417,9 +431,7 @@ def close_session(chat_session_id, session_id):
             print(chunk_text, end="", flush=True)
             response_content += chunk_text
 
-        engine.say(response_content)
-        # Run the speech engine
-        engine.runAndWait()
+        threading.Thread(target=speak, args=(response_content,), daemon=True).start()
 
         # Send transcription and personality response via websocket if available
         ws = session.get("websocket")
