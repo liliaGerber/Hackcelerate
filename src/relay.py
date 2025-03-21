@@ -365,7 +365,7 @@ def close_session(chat_session_id, session_id):
         )
         
         # Text to speech based on the response content
-        engine = pyttsx3.init()  # Object creation
+        engine = pyttsx3.init()
         engine.setProperty('rate', 200)
         volume = engine.getProperty('volume')
         engine.setProperty('volume', 0.8)  # Max volume
@@ -384,13 +384,11 @@ def close_session(chat_session_id, session_id):
         ]
 
         if current_speaker is not None :
-            text = f"Hello {current_speaker}. {random.choice(GREETINGS)}"
-            engine.say(text)
+            engine.say("Hello "+str(current_speaker)+". "+str(random.choice(GREETINGS)))
             engine.runAndWait()
 
         else:
-            text = "Sorry, I couldn't recognize you. How are you doing? Give me a moment to process that."
-            engine.say(text)
+            engine.say("Sorry, I couldn't recognize you. How are you doing? Give me a moment to process that.")
             engine.runAndWait()
 
         transcription = transcribe_whisper(session["audio_buffer"], pipe)
