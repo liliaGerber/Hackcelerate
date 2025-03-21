@@ -159,6 +159,41 @@ def get_face_identity(face_embedding, threshold=0.6):
     return None
 
 
+def speak_greeting(speaker):
+    """Runs text-to-speech in a separate thread."""
+    GREETINGS = [
+        "Give me a sec to think about that.",
+        "Let me process that real quick.",
+        "That's a good one! Thinking...",
+        "Just a moment, I'm working on it.",
+        "Let me figure this out for you.",
+        "Hold on, I'll get right back to you.",
+        "One moment while I put this together.",
+    ]
+
+    if speaker:
+        text = f"Hello {speaker}. {random.choice(GREETINGS)}"
+    else:
+        text = "Sorry, I couldn't recognize you. How are you doing? Give me a moment to process that."
+
+    speak(text)
+
+
+def speak(text):
+    # Text to speech based on the response content
+    engine = pyttsx3.init()  # Object creation
+    engine.setProperty('rate', 200)
+    volume = engine.getProperty('volume')
+    engine.setProperty('volume', 0.8)  # Max volume
+    voices = engine.getProperty('voices')
+    engine.setProperty('voice', voices[1].id)
+
+    if engine._inLoop:
+        engine.endLoop()
+    engine.say(text)
+    engine.runAndWait()
+
+
 # ----------------------- Face Recognition Loop (Active Speaker Logic) -----------------------
 def face_recognition_loop():
     global current_speaker
@@ -363,33 +398,8 @@ def close_session(chat_session_id, session_id):
             if is_flash_attn_2_available()
             else {"attn_implementation": "sdpa"},
         )
-
-        # Text to speech based on the response content
-        engine = pyttsx3.init()  # Object creation
-        # Setting a new speaking rate
-        engine.setProperty('rate', 200)
-
-        # Getting the current volume level
-        volume = engine.getProperty('volume')
-        # Setting a new volume level
-        engine.setProperty('volume', 0.8)  # Max volume
-
-        # Selecting a voice (0 for male, 1 for female, etc.)
-        voices = engine.getProperty('voices')
-        engine.setProperty('voice', voices[1].id)
-
-        GREETINGS = [
-            "It is really nice to see you again. Let me think for a moment.",
-            "Oh, thats an intersting one. Give me some time to process",
-            "I love that question! Let me consider...",
-        ]
-        # Add your own preliminary prompt
-        if current_speaker is not None:
-            engine.say("Hello "+str(current_speaker)+". "+
-            random.choice(GREETINGS))
-        else:
-            engine.say("Sorry I couldn't recognize you. How are you doing? Just give me a moment to process that.")
-        engine.runAndWait()
+        
+        threading.Thread(target=speak_greeting, args=(current_speaker,), daemon=True).start()
 
         transcription = transcribe_whisper(session["audio_buffer"], pipe)
         text = (str(*transcription) if isinstance(transcription, list) else str(transcription)).strip()
@@ -417,10 +427,8 @@ def close_session(chat_session_id, session_id):
             print(chunk_text, end="", flush=True)
             response_content += chunk_text
 
-        engine.say(response_content)
-        # Run the speech engine
-        engine.runAndWait()
-
+        threading.Thread(target=speak, args=(response_content,), daemon=True).start()
+    
         # Send transcription and personality response via websocket if available
         ws = session.get("websocket")
         if ws:
